@@ -12,10 +12,18 @@ export function createApp(app: Probot): void {
       if (pr.draft) return;
       if (pr.user?.type === "Bot") return;
 
+      const owner = pr.base.repo.owner.login;
+      const repo = pr.base.repo.name;
+      const repoConfig = await loadRepoConfigFromOctokit(context.octokit, owner, repo);
+      if (repoConfig.auto_review === false) {
+        console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
+        return;
+      }
+
       await runReview({
         octokit: context.octokit,
-        owner: pr.base.repo.owner.login,
-        repo: pr.base.repo.name,
+        owner,
+        repo,
         pullNumber: pr.number,
         headSha: pr.head.sha,
         dedupe: true,
