@@ -48,12 +48,14 @@ jobs:
           GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
           GITHUB_PRIVATE_KEY: ${{ secrets.GITHUB_PRIVATE_KEY }}
           WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY }}
+          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
           # 只对配置了的 secret 做写入；值从 stdin 传入（支持多行私钥）
-          for s in GITHUB_APP_ID GITHUB_PRIVATE_KEY WEBHOOK_SECRET ANTHROPIC_API_KEY OPENAI_API_KEY; do
+          for s in GITHUB_APP_ID GITHUB_PRIVATE_KEY WEBHOOK_SECRET AI_API_KEY AI_BASE_URL ANTHROPIC_API_KEY OPENAI_API_KEY; do
             v="${!s}"
             if [ -n "$v" ]; then
               printf '%s' "$v" | npx wrangler secret put "$s" --config worker/wrangler.toml
