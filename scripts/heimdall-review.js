@@ -236,6 +236,19 @@ async function main() {
   }
   const filtered = filterByMinSeverity(result, repoConfig.min_severity);
 
+  // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
+  if (repoConfig.block_on_critical) {
+    let headSha = event.pull_request?.head?.sha;
+    if (!headSha) {
+      const prData = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}`);
+      headSha = prData.head?.sha;
+    }
+    if (headSha) {
+      const criticalCount = filtered.issues.filter((i) => i.severity === "critical").length;
+      await setCriticalStatus(headSha, criticalCount);
+    }
+  }
+
   const body = renderReport(stats, renderMarkdown(filtered));
   const comments = filtered.issues
     .filter((i) => i.line > 0)
@@ -382,6 +395,18 @@ async function postReviewWithComments(body, comments) {
   await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/reviews`, {
     method: "POST",
     body: { event: "COMMENT", body, comments },
+  });
+}
+
+async function setCriticalStatus(sha, criticalCount) {
+  const state = criticalCount > 0 ? "failure" : "success";
+  const description =
+    criticalCount > 0
+      ? `存在 ${criticalCount} 个严重问题，解决后重新推送触发审查即可解除阻断`
+      : "未发现严重问题，可以合并";
+  await gh(`/repos/${owner}/${repo}/statuses/${sha}`, {
+    method: "POST",
+    body: { state, context: "heimdall/critical", description },
   });
 }
 

@@ -158,6 +158,10 @@ instructions: |
 # 可按需触发 @heimdall review 的账号白名单；不配置表示人人可触发
 manual_reviewers:
   - octocat
+
+# 存在未解决 critical 问题时，把 heimdall/critical 状态置为 failure
+# （在分支保护里把该检查加入 required status checks 即可真正阻断合并）
+block_on_critical: true
 ```
 
 > 三种部署模式均支持此配置；未配置时按默认行为审查全部文件。
