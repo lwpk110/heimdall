@@ -17,6 +17,8 @@ export function createApp(app: Probot): void {
         owner: pr.base.repo.owner.login,
         repo: pr.base.repo.name,
         pullNumber: pr.number,
+        headSha: pr.head.sha,
+        dedupe: true,
       });
     }
   );

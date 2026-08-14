@@ -213,14 +213,14 @@ heimdall/
 
 **每次 push 都会重新审查吗？**
 
-会（`synchronize` 事件）。如果觉得太吵，可以在 workflow / app.ts 里删掉 `synchronize`。
+会（`synchronize` 事件），但**同一 commit 不会重复审查**：自动触发时会检查该 commit 是否已有海姆达尔审查，有则跳过。手动 `@heimdall review` 始终会重新审查一次。
 
 ## 路线图
 
 - [x] 行内评论（定位到具体代码行）
 - [x] 支持更多 AI 提供方（Gemini、本地模型）→ 进行中
 - [ ] 基于文件变更规模的审查分级
-- [ ] 审查结果去重 / 增量审查
+- [x] 审查结果去重（同 commit 不重复审查；增量审查规划中）
 - [x] `.github/heimdall.yml` 配置化（见 PRD）
 
 ## License

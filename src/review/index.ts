@@ -10,10 +10,20 @@ export interface ReviewTarget {
   owner: string;
   repo: string;
   pullNumber: number;
+  /** 当前 head commit SHA；配合 dedupe 用于去重 */
+  headSha?: string;
+  /** 是否做同 commit 去重（自动触发为 true，手动触发为 false） */
+  dedupe?: boolean;
 }
 
 export async function runReview(target: ReviewTarget): Promise<void> {
-  const { octokit, owner, repo, pullNumber } = target;
+  const { octokit, owner, repo, pullNumber, headSha, dedupe } = target;
+
+  if (dedupe && headSha && (await hasExistingReview(target, headSha))) {
+    console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已审查过，跳过重复审查`);
+    return;
+  }
+
   const config = loadConfig();
   const repoConfig = await loadRepoConfigFromOctokit(octokit, owner, repo);
 
@@ -69,6 +79,15 @@ export function prParams(target: ReviewTarget): {
   pull_number: number;
 } {
   return { owner: target.owner, repo: target.repo, pull_number: target.pullNumber };
+}
+
+/** 该 head commit 是否已存在海姆达尔审查（用于同 commit 去重） */
+async function hasExistingReview(target: ReviewTarget, headSha: string): Promise<boolean> {
+  const { data: reviews } = await target.octokit.pulls.listReviews({
+    ...prParams(target),
+    per_page: 100,
+  });
+  return reviews.some((r) => r.commit_id === headSha && (r.body ?? "").includes("海姆达尔"));
 }
 
 interface DiffStats {

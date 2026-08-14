@@ -42,7 +42,7 @@ export default {
       }
       const pr = payload.pull_request;
       if (pr.draft || pr.user?.type === "Bot") return new Response("Ignored", { status: 200 });
-      ctx.waitUntil(runWebhookReview(env, payload, pr.number).catch((err) => console.error("审查失败:", err)));
+      ctx.waitUntil(runWebhookReview(env, payload, pr.number, undefined, pr.head.sha).catch((err) => console.error("审查失败:", err)));
       return new Response("OK", { status: 200 });
     }
 
@@ -94,7 +94,7 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
   return data.token;
 }
 
-async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string): Promise<void> {
+async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string, dedupeSha?: string): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const token = await getInstallationToken(env, payload.installation?.id);
@@ -114,6 +114,10 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
   const repoConfig = await loadRepoConfig(gh, owner, repo);
   if (triggerAuthor && !isAllowedManualReviewer(repoConfig.manual_reviewers, triggerAuthor)) {
     console.log(`海姆达尔：@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`);
+    return;
+  }
+  if (dedupeSha && (await hasExistingReview(gh, owner, repo, pullNumber, dedupeSha))) {
+    console.log(`海姆达尔：commit ${dedupeSha.slice(0, 8)} 已审查过，跳过重复审查`);
     return;
   }
   const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`);
@@ -174,6 +178,19 @@ function isAllowedManualReviewer(whitelist: string[] | undefined, login: string 
   if (!whitelist || whitelist.length === 0) return true;
   if (!login) return false;
   return whitelist.some((name) => name.toLowerCase() === login.toLowerCase());
+}
+
+async function hasExistingReview(
+  gh: (path: string, options?: { method?: string; body?: unknown }) => Promise<Response>,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  headSha: string
+): Promise<boolean> {
+  const res = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/reviews?per_page=100`);
+  if (!res.ok) return false;
+  const reviews = (await res.json()) as Array<{ commit_id?: string; body?: string }>;
+  return reviews.some((r) => r.commit_id === headSha && (r.body ?? "").includes("海姆达尔"));
 }
 
 interface DiffStats {
