@@ -1,3 +1,4 @@
+import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
 import { parseReview, renderMarkdown, ReviewResult } from "../src/review/parse";
 import { SYSTEM_PROMPT } from "../src/review/prompt";
