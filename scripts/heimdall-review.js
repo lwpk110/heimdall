@@ -56,10 +56,22 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——来自漫威宇�
 - issues 可以为空数组；不要为了凑数而挑刺`;
 
 const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
-const pr = event.pull_request;
+// pull_request 事件与 issue_comment（PR 评论 @heimdall review）事件都支持
+const pr = event.pull_request || (event.issue?.pull_request ? { number: event.issue.number } : null);
 if (!pr) {
   console.log("非 PR 事件，跳过");
   process.exit(0);
+}
+if (event.issue) {
+  const body = event.comment?.body ?? "";
+  if (!/@heimdall\s+review/i.test(body)) {
+    console.log("非触发评论，跳过");
+    process.exit(0);
+  }
+  if (event.comment?.user?.type === "Bot") {
+    console.log("机器人评论，跳过");
+    process.exit(0);
+  }
 }
 
 const [owner, repo] = GITHUB_REPOSITORY.split("/");

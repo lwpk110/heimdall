@@ -12,6 +12,8 @@ default_permissions:
   metadata: read
   contents: read
   pull_requests: write
+  issues: write
 
 default_events:
   - pull_request
+  - issue_comment
