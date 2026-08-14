@@ -1,0 +1,11 @@
+# 统一 LF 行尾，避免 Windows / macOS / Linux 贡献者之间的行尾混乱
+* text=auto
+*.ts text eol=lf
+*.js text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.md text eol=lf
+*.sh text eol=lf
+*.yml text eol=lf
+Dockerfile text eol=lf
