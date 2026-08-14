@@ -1,4 +1,4 @@
-import { AppConfig } from "../config";
+import { AppConfig, AiProvider } from "../config";
 
 export interface ReviewRequest {
   systemPrompt: string;
@@ -19,27 +19,56 @@ export async function generateReview(
   }
 }
 
+/** 统一 AI_API_KEY 优先，否则取提供方专属 key */
+function resolveApiKey(config: AppConfig, provider: AiProvider): string {
+  if (config.apiKey) return config.apiKey;
+  const envKey: Record<AiProvider, string> = {
+    anthropic: "ANTHROPIC_API_KEY",
+    openai: "OPENAI_API_KEY",
+    gemini: "GEMINI_API_KEY",
+  };
+  return process.env[envKey[provider]] ?? "";
+}
+
+function missingKeyError(provider: AiProvider): string {
+  return `缺少 API 密钥：请设置 AI_API_KEY（统一）或 ${provider.toUpperCase()}_API_KEY`;
+}
+
+/** 统一 AI_BASE_URL 优先，否则取提供方专属 base url，再回退官方默认 */
+function resolveBaseUrl(config: AppConfig, provider: AiProvider, fallback: string): string {
+  if (config.baseUrl) return config.baseUrl;
+  const envKey: Record<AiProvider, string> = {
+    anthropic: "ANTHROPIC_BASE_URL",
+    openai: "OPENAI_BASE_URL",
+    gemini: "GEMINI_BASE_URL",
+  };
+  return (process.env[envKey[provider]] ?? fallback).replace(/\/+$/, "");
+}
+
 async function callAnthropic(
   config: AppConfig,
   req: ReviewRequest
 ): Promise<string> {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("缺少环境变量 ANTHROPIC_API_KEY");
+  const apiKey = resolveApiKey(config, "anthropic");
+  if (!apiKey) throw new Error(missingKeyError("anthropic"));
 
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-api-key": apiKey,
-      "anthropic-version": "2023-06-01",
-    },
-    body: JSON.stringify({
-      model: config.model,
-      max_tokens: 4096,
-      system: req.systemPrompt,
-      messages: [{ role: "user", content: req.diff }],
-    }),
-  });
+  const res = await fetch(
+    `${resolveBaseUrl(config, "anthropic", "https://api.anthropic.com")}/v1/messages`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-api-key": apiKey,
+        "anthropic-version": "2023-06-01",
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: 4096,
+        system: req.systemPrompt,
+        messages: [{ role: "user", content: req.diff }],
+      }),
+    }
+  );
 
   if (!res.ok) {
     throw new Error(`Anthropic API 调用失败 (${res.status}): ${await res.text()}`);
@@ -52,24 +81,27 @@ async function callOpenAI(
   config: AppConfig,
   req: ReviewRequest
 ): Promise<string> {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) throw new Error("缺少环境变量 OPENAI_API_KEY");
+  const apiKey = resolveApiKey(config, "openai");
+  if (!apiKey) throw new Error(missingKeyError("openai"));
 
-  const res = await fetch(`${config.openaiBaseUrl}/chat/completions`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: config.model,
-      max_tokens: 4096,
-      messages: [
-        { role: "system", content: req.systemPrompt },
-        { role: "user", content: req.diff },
-      ],
-    }),
-  });
+  const res = await fetch(
+    `${resolveBaseUrl(config, "openai", "https://api.openai.com/v1")}/chat/completions`,
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: config.model,
+        max_tokens: 4096,
+        messages: [
+          { role: "system", content: req.systemPrompt },
+          { role: "user", content: req.diff },
+        ],
+      }),
+    }
+  );
 
   if (!res.ok) {
     throw new Error(`OpenAI API 调用失败 (${res.status}): ${await res.text()}`);
@@ -84,11 +116,11 @@ async function callGemini(
   config: AppConfig,
   req: ReviewRequest
 ): Promise<string> {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new Error("缺少环境变量 GEMINI_API_KEY");
+  const apiKey = resolveApiKey(config, "gemini");
+  if (!apiKey) throw new Error(missingKeyError("gemini"));
 
   const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${config.model}:generateContent`,
+    `${resolveBaseUrl(config, "gemini", "https://generativelanguage.googleapis.com")}/v1beta/models/${config.model}:generateContent`,
     {
       method: "POST",
       headers: {

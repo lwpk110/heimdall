@@ -8,10 +8,14 @@ interface Env {
   GITHUB_PRIVATE_KEY: string;
   WEBHOOK_SECRET: string;
   AI_PROVIDER?: string;
+  AI_API_KEY?: string;
+  AI_BASE_URL?: string;
   ANTHROPIC_API_KEY?: string;
+  ANTHROPIC_BASE_URL?: string;
   OPENAI_API_KEY?: string;
   OPENAI_BASE_URL?: string;
   GEMINI_API_KEY?: string;
+  GEMINI_BASE_URL?: string;
   AI_MODEL?: string;
   MAX_DIFF_LENGTH?: string;
 }
@@ -257,11 +261,12 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
   const provider = (env.AI_PROVIDER ?? "anthropic").toLowerCase();
 
   if (provider === "openai") {
-    if (!env.OPENAI_API_KEY) throw new Error("缺少 OPENAI_API_KEY");
-    const baseUrl = (env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    const apiKey = env.AI_API_KEY || env.OPENAI_API_KEY;
+    if (!apiKey) throw new Error("缺少 OPENAI_API_KEY");
+    const baseUrl = (env.AI_BASE_URL || env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: env.AI_MODEL ?? "gpt-4o",
         max_tokens: 4096,
@@ -277,12 +282,14 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
   }
 
   if (provider === "gemini") {
-    if (!env.GEMINI_API_KEY) throw new Error("缺少 GEMINI_API_KEY");
+    const apiKey = env.AI_API_KEY || env.GEMINI_API_KEY;
+    if (!apiKey) throw new Error("缺少 GEMINI_API_KEY");
+    const baseUrl = (env.AI_BASE_URL || env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${env.AI_MODEL ?? "gemini-2.0-flash"}:generateContent`,
+      `${baseUrl}/v1beta/models/${env.AI_MODEL ?? "gemini-2.0-flash"}:generateContent`,
       {
         method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: "user", parts: [{ text: diff }] }],
@@ -296,12 +303,14 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
     return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   }
 
-  if (!env.ANTHROPIC_API_KEY) throw new Error("缺少 ANTHROPIC_API_KEY");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const apiKey = env.AI_API_KEY || env.ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("缺少 ANTHROPIC_API_KEY");
+  const baseUrl = (env.AI_BASE_URL || env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+  const res = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": env.ANTHROPIC_API_KEY,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
