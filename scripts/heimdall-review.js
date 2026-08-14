@@ -187,6 +187,17 @@ async function main() {
     console.log("海姆达尔：评论者不在 manual_reviewers 白名单，忽略触发");
     return;
   }
+  // 同 commit 去重：自动触发时若该 commit 已审查过则跳过（手动触发不重复）
+  if (!event.issue && event.pull_request?.head?.sha) {
+    const existing = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/reviews?per_page=100`);
+    const reviewed = existing.some(
+      (r) => r.commit_id === event.pull_request.head.sha && (r.body || "").includes("海姆达尔")
+    );
+    if (reviewed) {
+      console.log("海姆达尔：该 commit 已审查过，跳过重复审查");
+      return;
+    }
+  }
   const files = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
