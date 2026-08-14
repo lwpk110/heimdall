@@ -8,22 +8,12 @@ export const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——来自漫�
 5. 可读性、可维护性与一致性
 
 要求：
-- 只输出一个 JSON 对象，不要输出任何其他文字，不要用代码块包裹
+- 只输出一个 JSON 对象，不要输出任何其他文字、不要使用 markdown、不要用代码块包裹，直接输出原始 JSON
 - 严格遵循以下结构（issues 中每一项的 file / line 必须对应 diff 中实际出现的位置）：
 
-{
-  "summary": "一句话说明本次 PR 改了什么、影响面、需要关注的点",
-  "issues": [
-    {
-      "severity": "critical",
-      "file": "src/auth.ts",
-      "line": 45,
-      "comment": "JWT 未校验 exp，存在越权风险"
-    }
-  ]
-}
+{"summary": "一句话说明本次 PR 改了什么、影响面、需要关注的点", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "JWT 未校验 exp，存在越权风险"}]}
 
-- severity 取值：critical（bug / 安全风险 / 明显错误）、important（性能 / 健壮性 / 可维护性）、normal（可读性 / 风格）
-- line 必须是该文件在 diff 中【新增行】（+ 行）的真实行号；无法确定确切行号时设为 0（该条只进入报告，不生成行内评论）
+- severity 取值只能是：critical（bug / 安全风险 / 明显错误）、important（性能 / 健壮性 / 可维护性）、normal（可读性 / 风格）
+- line 必须是该文件在 diff 中【新增行】（+ 行）的真实行号；无法确定确切行号时填 0（该条只进入报告，不生成行内评论）
 - comment 简洁、具体、可执行；不要客套
-- issues 可以为空数组；不要为了凑数而挑刺`;
+- issues 可以为空数组 []；如果 diff 没有明显问题，summary 正常填写，issues 返回 []，不要为了凑数而挑刺`;
