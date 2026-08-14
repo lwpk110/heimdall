@@ -7,7 +7,7 @@
 ## 特性
 
 - **三形态部署**：GitHub Actions（单仓库自用、零服务器）、Cloudflare Workers（无服务器、可作为 GitHub App 分发）、Probot / Docker 自托管（代码不出内网）
-- 自动监听 PR 的 `opened` / `reopened` / `synchronize` 事件；在 PR 评论发 `@heimdall review` 可手动触发重新审查
+- 自动监听 PR 的 `opened` / `reopened` / `synchronize` 事件；在 PR 评论发 `@heimdall`（或 `@heimdall review`）可手动触发重新审查
 - 调用 Claude / GPT / Gemini / 本地模型审查 diff（支持统一 `AI_API_KEY` + `AI_BASE_URL` 走代理网关）
 - 以 PR Review 形式发布报告：变更摘要 + 严重度分级（🔴 严重 / 🟡 建议 / 🟢 良好）
 - 行内评论定位到具体文件与代码行，行号映射失败时自动降级为整体报告，不丢失审查内容
