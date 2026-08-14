@@ -115,6 +115,7 @@ npm run worker:deploy
 | `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（权限：`Workers Scripts: Edit`） |
 | `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID |
 | `GITHUB_APP_ID` / `GITHUB_PRIVATE_KEY` / `WEBHOOK_SECRET` | 注册 GitHub App 时获取 |
+| `AI_API_KEY` / `AI_BASE_URL` | 统一 API Key 与基地址（代理网关，可选） |
 | `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | AI 密钥（可选） |
 
 > `GITHUB_PRIVATE_KEY` 为多行私钥，直接粘贴完整内容即可；workflow 会原样写入。
