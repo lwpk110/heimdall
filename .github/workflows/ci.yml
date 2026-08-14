@@ -23,5 +23,5 @@ jobs:
       - name: 安装依赖
         run: npm ci
 
-      - name: TypeScript 构建
-        run: npm run build
+      - name: 构建 + 单元测试
+        run: npm test

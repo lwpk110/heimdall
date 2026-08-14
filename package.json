@@ -6,6 +6,7 @@
   "type": "commonjs",
   "scripts": {
     "build": "tsc",
+    "test": "npm run build && node --test",
     "start": "node lib/index.js",
     "dev": "tsc && node lib/index.js",
     "worker:dev": "wrangler dev --config worker/wrangler.toml",
