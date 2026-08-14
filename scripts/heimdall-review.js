@@ -187,11 +187,20 @@ async function main() {
     console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
     return;
   }
-  // 同 commit 去重：自动触发时若该 commit 已审查过则跳过（手动触发不重复）
-  if (!event.issue && event.pull_request?.head?.sha) {
+  // 同 commit 去重：自动或手动触发时，该 commit 已审查过则跳过，避免重复审查刷屏
+  let headSha = event.pull_request?.head?.sha;
+  if (!headSha) {
+    try {
+      const prData = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}`);
+      headSha = prData.head?.sha;
+    } catch (err) {
+      console.log("海姆达尔：获取 PR head 失败，跳过去重：", err.message);
+    }
+  }
+  if (headSha) {
     const existing = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/reviews?per_page=100`);
     const reviewed = existing.some(
-      (r) => r.commit_id === event.pull_request.head.sha && (r.body || "").includes("海姆达尔")
+      (r) => r.commit_id === headSha && (r.body || "").includes("海姆达尔")
     );
     if (reviewed) {
       console.log("海姆达尔：该 commit 已审查过，跳过重复审查");

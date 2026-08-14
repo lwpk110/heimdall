@@ -47,7 +47,7 @@ export default {
       }
       const pr = payload.pull_request;
       if (pr.draft || pr.user?.type === "Bot") return new Response("Ignored", { status: 200 });
-      ctx.waitUntil(runWebhookReview(env, payload, pr.number, undefined, pr.head.sha, true).catch((err) => console.error("审查失败:", err)));
+      ctx.waitUntil(runWebhookReview(env, payload, pr.number, undefined, true).catch((err) => console.error("审查失败:", err)));
       return new Response("OK", { status: 200 });
     }
 
@@ -100,7 +100,7 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
   return data.token;
 }
 
-async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string, dedupeSha?: string, isAuto = false): Promise<void> {
+async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string, isAuto = false): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const token = await getInstallationToken(env, payload.installation?.id);
@@ -127,8 +127,18 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     console.log(`海姆达尔：@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`);
     return;
   }
-  if (dedupeSha && (await hasExistingReview(gh, owner, repo, pullNumber, dedupeSha))) {
-    console.log(`海姆达尔：commit ${dedupeSha.slice(0, 8)} 已审查过，跳过重复审查`);
+
+  // 同 commit 去重：自动或手动触发时，该 commit 已审查过则跳过
+  let headSha = payload.pull_request?.head?.sha;
+  if (!headSha) {
+    const prRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}`);
+    if (prRes.ok) {
+      const prData = (await prRes.json()) as { head?: { sha?: string } };
+      headSha = prData.head?.sha;
+    }
+  }
+  if (headSha && (await hasExistingReview(gh, owner, repo, pullNumber, headSha))) {
+    console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已审查过，跳过重复审查`);
     return;
   }
   const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`);
@@ -170,26 +180,16 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
   }
 
   // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
-  if (repoConfig.block_on_critical) {
-    let headSha = dedupeSha;
-    if (!headSha) {
-      const prRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}`);
-      if (prRes.ok) {
-        const prData = (await prRes.json()) as { head?: { sha?: string } };
-        headSha = prData.head?.sha;
-      }
-    }
-    if (headSha) {
-      const state = criticalCount > 0 ? "failure" : "success";
-      const description =
-        criticalCount > 0
-          ? `存在 ${criticalCount} 个严重问题，解决后重新推送触发审查即可解除阻断`
-          : "未发现严重问题，可以合并";
-      await gh(`/repos/${owner}/${repo}/statuses/${headSha}`, {
-        method: "POST",
-        body: { state, context: "heimdall/critical", description },
-      });
-    }
+  if (repoConfig.block_on_critical && headSha) {
+    const state = criticalCount > 0 ? "failure" : "success";
+    const description =
+      criticalCount > 0
+        ? `存在 ${criticalCount} 个严重问题，解决后重新推送触发审查即可解除阻断`
+        : "未发现严重问题，可以合并";
+    await gh(`/repos/${owner}/${repo}/statuses/${headSha}`, {
+      method: "POST",
+      body: { state, context: "heimdall/critical", description },
+    });
   }
 
   // 3. 以 Review 形式回写 PR

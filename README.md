@@ -278,7 +278,7 @@ heimdall/
 
 **每次 push 都会重新审查吗？**
 
-会（`synchronize` 事件），但**同一 commit 不会重复审查**：自动触发时会检查该 commit 是否已有海姆达尔审查，有则跳过。手动 `@heimdall review` 始终会重新审查一次。
+会（`synchronize` 事件），但**同一 commit 不会重复审查**：自动触发和手动 `@heimdall` 触发都会检查该 commit 是否已有海姆达尔审查，有则跳过；只有推入**新 commit** 才会重新审查。
 
 ## 路线图
 
