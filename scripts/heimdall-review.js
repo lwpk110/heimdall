@@ -33,18 +33,25 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——来自漫威宇�
 5. 可读性、可维护性与一致性
 
 要求：
-- 用中文输出，简洁、具体、可执行
-- 严格按下面的结构输出（变更统计行由系统生成，你不需要输出）：
-  **变更概述**：用一句话说明本次 PR 改了什么、影响面、需要关注的点
-  ### 🔴 严重问题
-  （列出会导致 bug / 安全风险 / 明显错误的严重问题，尽量带文件名与行号；没有则写"未发现"）
-  ### 🟡 建议改进
-  （列出性能、可读性、健壮性方面的建议；没有可省略该小节）
-  ### 🟢 良好实践
-  （列出值得肯定的实现；没有可省略该小节）
-- 每个问题尽量指出所在文件和大致位置
-- 直接给出有价值的技术判断，不要客套
-- 如果 diff 没有明显问题，如实说明即可，不要为了凑数而挑刺`;
+- 只输出一个 JSON 对象，不要输出任何其他文字，不要用代码块包裹
+- 严格遵循以下结构（issues 中每一项的 file / line 必须对应 diff 中实际出现的位置）：
+
+{
+  "summary": "一句话说明本次 PR 改了什么、影响面、需要关注的点",
+  "issues": [
+    {
+      "severity": "critical",
+      "file": "src/auth.ts",
+      "line": 45,
+      "comment": "JWT 未校验 exp，存在越权风险"
+    }
+  ]
+}
+
+- severity 取值：critical（bug / 安全风险 / 明显错误）、important（性能 / 健壮性 / 可维护性）、normal（可读性 / 风格）
+- line 必须是该文件在 diff 中【新增行】（+ 行）的真实行号；无法确定确切行号时设为 0（该条只进入报告，不生成行内评论）
+- comment 简洁、具体、可执行；不要客套
+- issues 可以为空数组；不要为了凑数而挑刺`;
 
 const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
 const pr = event.pull_request;
@@ -148,18 +155,115 @@ async function main() {
   }
 
   // 2. 调用 LLM
-  let report;
+  let rawReport;
   try {
-    report = await generateReview(diff);
+    rawReport = await generateReview(diff);
   } catch (err) {
     await postReview(renderReport(stats, `⚠️ 审查失败：${err.message}`));
     console.error("审查失败：", err.message);
     process.exit(1);
   }
 
-  // 3. 发布审查
-  await postReview(renderReport(stats, report));
+  // 3. 解析结构化结果，行内评论失败时降级为整体报告
+  const result = parseReview(rawReport);
+  if (!result) {
+    console.log("海姆达尔：结构化解析失败，降级为整体报告");
+    await postReview(renderReport(stats, rawReport));
+    return;
+  }
+
+  const body = renderReport(stats, renderMarkdown(result));
+  const comments = result.issues
+    .filter((i) => i.line > 0)
+    .map((i) => ({
+      path: i.file,
+      line: i.line,
+      side: "RIGHT",
+      body: `${severityLabel(i.severity)} ${i.comment}`,
+    }));
+
+  if (comments.length === 0) {
+    await postReview(body);
+    return;
+  }
+
+  try {
+    await postReviewWithComments(body, comments);
+  } catch (err) {
+    console.error("行内评论发布失败，降级为整体报告：", err.message);
+    await postReview(body);
+  }
   console.log("海姆达尔审查完成");
+}
+
+async function postReviewWithComments(body, comments) {
+  await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/reviews`, {
+    method: "POST",
+    body: { event: "COMMENT", body, comments },
+  });
+}
+
+function parseReview(raw) {
+  const text = String(raw).replace(/```(?:json)?/gi, "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  let data;
+  try {
+    data = JSON.parse(text.slice(start, end + 1));
+  } catch (err) {
+    return null;
+  }
+  const issues = Array.isArray(data.issues)
+    ? data.issues.map(normalizeIssue).filter(Boolean)
+    : [];
+  return { summary: typeof data.summary === "string" ? data.summary : "", issues };
+}
+
+const SEVERITIES = ["critical", "important", "normal"];
+
+function normalizeIssue(raw) {
+  if (typeof raw !== "object" || raw === null) return null;
+  const file = typeof raw.file === "string" ? raw.file.trim() : "";
+  const comment = typeof raw.comment === "string" ? raw.comment.trim() : "";
+  const line = typeof raw.line === "number" ? Math.floor(raw.line) : 0;
+  const severity = SEVERITIES.includes(raw.severity) ? raw.severity : "important";
+  if (!file || !comment) return null;
+  return { severity, file, line: line > 0 ? line : 0, comment };
+}
+
+function renderMarkdown(result) {
+  const lines = [];
+  if (result.summary) lines.push(`**变更概述**：${result.summary}`, "");
+  for (const sev of SEVERITIES) {
+    const group = result.issues.filter((i) => i.severity === sev);
+    if (group.length === 0) continue;
+    lines.push(`### ${SEVERITY_LABELS[sev]}`, "");
+    for (const i of group) {
+      const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
+      lines.push(`- \`${loc}\`：${i.comment}`);
+    }
+    lines.push("");
+  }
+  if (result.issues.length === 0) lines.push("未发现明显问题。", "");
+  return lines.join("\n").trim();
+}
+
+const SEVERITY_LABELS = {
+  critical: "🔴 严重问题",
+  important: "🟡 建议改进",
+  normal: "🟢 良好实践",
+};
+
+function severityLabel(severity) {
+  switch (severity) {
+    case "critical":
+      return "🔴";
+    case "important":
+      return "🟡";
+    case "normal":
+      return "🟢";
+  }
 }
 
 function diffStats(files) {

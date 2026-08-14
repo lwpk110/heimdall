@@ -1,4 +1,5 @@
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
+import { parseReview, renderMarkdown } from "../src/review/parse";
 import { SYSTEM_PROMPT } from "../src/review/prompt";
 
 interface Env {
@@ -95,7 +96,9 @@ async function handlePullRequest(env: Env, payload: any): Promise<void> {
   // 2. 调用 LLM 生成审查报告
   let report: string;
   try {
-    report = await generateReview(env, diff);
+    const raw = await generateReview(env, diff);
+    const result = parseReview(raw);
+    report = result ? renderMarkdown(result) : raw;
   } catch (err) {
     report = `⚠️ 审查失败：${err instanceof Error ? err.message : String(err)}`;
   }
