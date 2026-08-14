@@ -53,7 +53,7 @@ export default {
       if (!issue?.pull_request) return new Response("Ignored", { status: 200 });
       if (!/@heimdall\s+review/i.test(comment?.body ?? "")) return new Response("Ignored", { status: 200 });
       if (comment?.user?.type === "Bot") return new Response("Ignored", { status: 200 });
-      ctx.waitUntil(runWebhookReview(env, payload, issue.number).catch((err) => console.error("审查失败:", err)));
+      ctx.waitUntil(runWebhookReview(env, payload, issue.number, comment?.user?.login).catch((err) => console.error("审查失败:", err)));
       return new Response("OK", { status: 200 });
     }
 
@@ -94,7 +94,7 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
   return data.token;
 }
 
-async function runWebhookReview(env: Env, payload: any, pullNumber: number): Promise<void> {
+async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const token = await getInstallationToken(env, payload.installation?.id);
@@ -112,6 +112,10 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number): Pro
 
   // 1. 读取配置与文件列表
   const repoConfig = await loadRepoConfig(gh, owner, repo);
+  if (triggerAuthor && !isAllowedManualReviewer(repoConfig.manual_reviewers, triggerAuthor)) {
+    console.log(`海姆达尔：@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`);
+    return;
+  }
   const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`);
   if (!filesRes.ok) throw new Error(`读取文件列表失败：${filesRes.status}`);
   const files = (await filesRes.json()) as Array<{
@@ -164,6 +168,12 @@ async function loadRepoConfig(gh: (path: string, options?: { method?: string; bo
   } catch {
     return {};
   }
+}
+
+function isAllowedManualReviewer(whitelist: string[] | undefined, login: string | undefined): boolean {
+  if (!whitelist || whitelist.length === 0) return true;
+  if (!login) return false;
+  return whitelist.some((name) => name.toLowerCase() === login.toLowerCase());
 }
 
 interface DiffStats {

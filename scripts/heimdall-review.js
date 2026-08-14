@@ -183,6 +183,10 @@ async function postReview(body) {
 async function main() {
   // 1. 读取配置、diff 与变更统计
   const repoConfig = await loadRepoConfig();
+  if (event.issue && !isAllowedManualReviewer(repoConfig.manual_reviewers, event.comment?.user?.login)) {
+    console.log("海姆达尔：评论者不在 manual_reviewers 白名单，忽略触发");
+    return;
+  }
   const files = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
@@ -347,6 +351,12 @@ function filterFiles(files, cfg) {
     if (cfg.exclude && cfg.exclude.length && matchesAnyGlob(f.filename, cfg.exclude)) return false;
     return true;
   });
+}
+
+function isAllowedManualReviewer(whitelist, login) {
+  if (!whitelist || whitelist.length === 0) return true;
+  if (!login) return false;
+  return whitelist.some((name) => String(name).toLowerCase() === String(login).toLowerCase());
 }
 
 const SEVERITY_RANK = { critical: 3, important: 2, normal: 1 };

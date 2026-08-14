@@ -1,5 +1,6 @@
 import { Probot } from "probot";
 import { runReview } from "./review";
+import { loadRepoConfigFromOctokit } from "./review/repo-config";
 
 export function createApp(app: Probot): void {
   app.on(
@@ -27,11 +28,26 @@ export function createApp(app: Probot): void {
     if (!/@heimdall\s+review/i.test(payload.comment?.body ?? "")) return;
     if (payload.comment?.user?.type === "Bot") return; // 忽略机器人评论
 
+    const owner = payload.repository.owner.login;
+    const repo = payload.repository.name;
+    const repoConfig = await loadRepoConfigFromOctokit(context.octokit, owner, repo);
+    if (!isAllowedManualReviewer(repoConfig.manual_reviewers, payload.comment?.user?.login)) {
+      console.log(`海姆达尔：@${payload.comment?.user?.login} 不在 manual_reviewers 白名单，忽略触发`);
+      return;
+    }
+
     await runReview({
       octokit: context.octokit,
-      owner: payload.repository.owner.login,
-      repo: payload.repository.name,
+      owner,
+      repo,
       pullNumber: payload.issue.number,
     });
   });
+}
+
+function isAllowedManualReviewer(whitelist: string[] | undefined, login: string | undefined): boolean {
+  // 未配置白名单表示不限；白名单为空数组时同样放开
+  if (!whitelist || whitelist.length === 0) return true;
+  if (!login) return false;
+  return whitelist.some((name) => name.toLowerCase() === login.toLowerCase());
 }

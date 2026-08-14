@@ -154,6 +154,10 @@ min_severity: normal
 instructions: |
   本项目使用 TypeScript，遵循 strict 模式。
   禁止使用 any。
+
+# 可按需触发 @heimdall review 的账号白名单；不配置表示人人可触发
+manual_reviewers:
+  - octocat
 ```
 
 > 三种部署模式均支持此配置；未配置时按默认行为审查全部文件。
