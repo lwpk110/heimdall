@@ -3,14 +3,14 @@ import { loadConfig } from "../config";
 import { generateReview } from "./providers";
 import { SYSTEM_PROMPT } from "./prompt";
 
-export async function runReview(context: Context): Promise<void> {
+export async function runReview(context: Context<"pull_request">): Promise<void> {
   const config = loadConfig();
   const pr = context.pullRequest();
 
   const { data: files } = await context.octokit.pulls.listFiles({
     owner: pr.owner,
     repo: pr.repo,
-    pull_number: pr.number,
+    pull_number: pr.pull_number,
     per_page: 100,
   });
 
@@ -40,12 +40,12 @@ export async function runReview(context: Context): Promise<void> {
   await postSummary(context, `## 海姆达尔 · 代码审查报告\n\n${report}`);
 }
 
-async function postSummary(context: Context, body: string): Promise<void> {
+async function postSummary(context: Context<"pull_request">, body: string): Promise<void> {
   const pr = context.pullRequest();
   await context.octokit.pulls.createReview({
     owner: pr.owner,
     repo: pr.repo,
-    pull_number: pr.number,
+    pull_number: pr.pull_number,
     event: "COMMENT",
     body,
   });
