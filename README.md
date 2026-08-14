@@ -104,6 +104,21 @@ npm run worker:deploy
 
 部署后把 GitHub App 的 **Webhook URL** 改成 Worker 地址，即可生效。
 
+### 2.1 自动发布（GitHub Actions）
+
+本仓库内置 `.github/workflows/deploy.yml`：推送 `main`（仅 worker/src 相关文件变化）或手动 dispatch 时，自动 `wrangler deploy` 并写入 Worker Secrets。
+
+在仓库 **Settings → Secrets and variables → Actions** 配置：
+
+| Secret | 说明 |
+| --- | --- |
+| `CLOUDFLARE_API_TOKEN` | Cloudflare API Token（权限：`Workers Scripts: Edit`） |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID |
+| `GITHUB_APP_ID` / `GITHUB_PRIVATE_KEY` / `WEBHOOK_SECRET` | 注册 GitHub App 时获取 |
+| `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | AI 密钥（可选） |
+
+> `GITHUB_PRIVATE_KEY` 为多行私钥，直接粘贴完整内容即可；workflow 会原样写入。
+
 ---
 
 ## 可选：自托管服务（Docker / Probot）
