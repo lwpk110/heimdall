@@ -147,14 +147,38 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
 
   // 2. 调用 LLM 生成审查报告
   let report: string;
+  let criticalCount = 0;
   try {
     const raw = await generateReview(env, diff, systemPrompt);
     const parsed = parseReview(raw);
-    report = parsed
-      ? renderReport(stats, renderMarkdown(filterByMinSeverity(parsed, repoConfig.min_severity)))
-      : renderReport(stats, raw);
+    const filtered = parsed ? filterByMinSeverity(parsed, repoConfig.min_severity) : null;
+    criticalCount = filtered ? filtered.issues.filter((i) => i.severity === "critical").length : 0;
+    report = filtered ? renderReport(stats, renderMarkdown(filtered)) : renderReport(stats, raw);
   } catch (err) {
     report = renderReport(stats, `⚠️ 审查失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
+  if (repoConfig.block_on_critical) {
+    let headSha = dedupeSha;
+    if (!headSha) {
+      const prRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}`);
+      if (prRes.ok) {
+        const prData = (await prRes.json()) as { head?: { sha?: string } };
+        headSha = prData.head?.sha;
+      }
+    }
+    if (headSha) {
+      const state = criticalCount > 0 ? "failure" : "success";
+      const description =
+        criticalCount > 0
+          ? `存在 ${criticalCount} 个严重问题，解决后重新推送触发审查即可解除阻断`
+          : "未发现严重问题，可以合并";
+      await gh(`/repos/${owner}/${repo}/statuses/${headSha}`, {
+        method: "POST",
+        body: { state, context: "heimdall/critical", description },
+      });
+    }
   }
 
   // 3. 以 Review 形式回写 PR

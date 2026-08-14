@@ -70,7 +70,12 @@ export async function runReview(target: ReviewTarget): Promise<void> {
     return;
   }
 
-  await postInlineReview(target, stats, filterByMinSeverity(parsed, repoConfig.min_severity));
+  const filtered = filterByMinSeverity(parsed, repoConfig.min_severity);
+  if (repoConfig.block_on_critical && headSha) {
+    await setCriticalStatus(target, headSha, filtered.issues.filter((i) => i.severity === "critical").length);
+  }
+
+  await postInlineReview(target, stats, filtered);
 }
 
 export function prParams(target: ReviewTarget): {
@@ -88,6 +93,23 @@ async function hasExistingReview(target: ReviewTarget, headSha: string): Promise
     per_page: 100,
   });
   return reviews.some((r) => r.commit_id === headSha && (r.body ?? "").includes("海姆达尔"));
+}
+
+/** 存在 critical 问题时把 heimdall/critical 状态置为 failure，阻断合并；无则 success */
+async function setCriticalStatus(target: ReviewTarget, headSha: string, criticalCount: number): Promise<void> {
+  const state = criticalCount > 0 ? "failure" : "success";
+  const description =
+    criticalCount > 0
+      ? `存在 ${criticalCount} 个严重问题，解决后重新推送触发审查即可解除阻断`
+      : "未发现严重问题，可以合并";
+  await target.octokit.repos.createCommitStatus({
+    owner: target.owner,
+    repo: target.repo,
+    sha: headSha,
+    state,
+    context: "heimdall/critical",
+    description,
+  });
 }
 
 interface DiffStats {

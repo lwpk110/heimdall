@@ -38,11 +38,18 @@ export function createApp(app: Probot): void {
       return;
     }
 
+    // 手动触发始终重新审查；取 head SHA 供 block_on_critical 状态使用
+    const { data: pr } = await context.octokit.pulls.get({
+      owner,
+      repo,
+      pull_number: payload.issue.number,
+    });
     await runReview({
       octokit: context.octokit,
       owner,
       repo,
       pullNumber: payload.issue.number,
+      headSha: pr.head.sha,
     });
   });
 }

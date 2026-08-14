@@ -16,6 +16,8 @@ export interface RepoConfig {
   instructions?: string;
   /** 可按需触发 @heimdall review 的账号白名单；为空表示不限制 */
   manual_reviewers?: string[];
+  /** 存在未解决 critical 问题时设置 heimdall/critical 状态为失败，阻断合并 */
+  block_on_critical?: boolean;
 }
 
 /** 解析 heimdall.yml（支持标量、内联数组、块列表、块文本 |，忽略其他键以兼容未来扩展） */
@@ -99,6 +101,9 @@ function setValue(cfg: RepoConfig, key: keyof RepoConfig, value: unknown): void 
       break;
     case "instructions":
       if (typeof value === "string") cfg.instructions = value;
+      break;
+    case "block_on_critical":
+      if (typeof value === "boolean") cfg.block_on_critical = value;
       break;
   }
 }
