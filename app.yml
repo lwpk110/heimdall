@@ -1,6 +1,6 @@
 # GitHub App Manifest —— 可通过此文件一键注册 GitHub App
 # 注册方式见 README「快速开始」
-name: heimdall
+name: heimdall-code-review
 description: 海姆达尔 (Heimdall) — AI 驱动的代码审查机器人
 url: https://github.com
 
