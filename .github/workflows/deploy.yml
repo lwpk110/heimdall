@@ -1,0 +1,62 @@
+# 发布：把海姆达尔 Worker 自动部署到 Cloudflare
+# 触发：push 到 main（仅当 worker/src/wrangler 相关文件变化）或手动 dispatch
+
+name: Deploy Worker
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "src/**"
+      - "wrangler.toml"
+      - "package.json"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-worker
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: 部署 Worker 到 Cloudflare
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: deploy --config worker/wrangler.toml
+
+      - name: 配置 Worker Secrets
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
+          GITHUB_PRIVATE_KEY: ${{ secrets.GITHUB_PRIVATE_KEY }}
+          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -euo pipefail
+          # 只对配置了的 secret 做写入；值从 stdin 传入（支持多行私钥）
+          for s in GITHUB_APP_ID GITHUB_PRIVATE_KEY WEBHOOK_SECRET ANTHROPIC_API_KEY OPENAI_API_KEY; do
+            v="${!s}"
+            if [ -n "$v" ]; then
+              printf '%s' "$v" | npx wrangler secret put "$s" --config worker/wrangler.toml
+              echo "已写入 secret: $s"
+            fi
+          done
