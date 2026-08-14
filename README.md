@@ -77,7 +77,7 @@ https://github.com/settings/apps/new?url=https://raw.githubusercontent.com/<你�
 
 1. GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**
 2. 关键项：
-   - **GitHub App name**：`heimdall-code-review`（全局唯一，重名可加后缀）
+   - **GitHub App name**：`Heimdall-coding-review`（全局唯一，重名可加后缀）
    - **Webhook URL**：部署 Worker 后填 `https://heimdall.<你的子域>.workers.dev/api/github/webhooks`
    - **Webhook secret**：生成随机串并保存
    - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write（用于响应 `@heimdall review` 评论）；`Metadata` → Read-only
