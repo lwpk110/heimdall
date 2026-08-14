@@ -53,6 +53,10 @@ cp scripts/heimdall-review.js <目标仓库>/scripts/
 
 在目标仓库提一个 PR，海姆达尔会自动在 **Files changed** 页发布审查报告。
 
+### 4. 手动触发
+
+在 PR 评论里发 `@heimdall review` 即可手动触发一次重新审查（如只想偶尔审查，可在 workflow 里删掉 `synchronize` 减少自动触发）。
+
 ---
 
 ## 模式 B：Cloudflare Workers（作为 GitHub App）

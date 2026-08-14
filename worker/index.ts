@@ -33,19 +33,31 @@ export default {
     }
 
     if (event === "ping") return new Response("OK", { status: 200 });
-    if (event !== "pull_request") return new Response("Ignored", { status: 200 });
 
     const payload = JSON.parse(body);
-    if (!["opened", "reopened", "synchronize"].includes(payload.action)) {
-      return new Response("Ignored", { status: 200 });
+
+    if (event === "pull_request") {
+      if (!["opened", "reopened", "synchronize"].includes(payload.action)) {
+        return new Response("Ignored", { status: 200 });
+      }
+      const pr = payload.pull_request;
+      if (pr.draft || pr.user?.type === "Bot") return new Response("Ignored", { status: 200 });
+      ctx.waitUntil(runWebhookReview(env, payload, pr.number).catch((err) => console.error("审查失败:", err)));
+      return new Response("OK", { status: 200 });
     }
-    const pr = payload.pull_request;
-    if (pr.draft || pr.user?.type === "Bot") return new Response("Ignored", { status: 200 });
 
-    // 异步执行审查，立即返回 ack，避免 webhook 超时
-    ctx.waitUntil(handlePullRequest(env, payload).catch((err) => console.error("审查失败:", err)));
+    if (event === "issue_comment" && payload.action === "created") {
+      const issue = payload.issue;
+      const comment = payload.comment;
+      // 只处理 PR 上的评论，且内容匹配 @heimdall review
+      if (!issue?.pull_request) return new Response("Ignored", { status: 200 });
+      if (!/@heimdall\s+review/i.test(comment?.body ?? "")) return new Response("Ignored", { status: 200 });
+      if (comment?.user?.type === "Bot") return new Response("Ignored", { status: 200 });
+      ctx.waitUntil(runWebhookReview(env, payload, issue.number).catch((err) => console.error("审查失败:", err)));
+      return new Response("OK", { status: 200 });
+    }
 
-    return new Response("OK", { status: 200 });
+    return new Response("Ignored", { status: 200 });
   },
 };
 
@@ -82,8 +94,7 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
   return data.token;
 }
 
-async function handlePullRequest(env: Env, payload: any): Promise<void> {
-  const pr = payload.pull_request;
+async function runWebhookReview(env: Env, payload: any, pullNumber: number): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const token = await getInstallationToken(env, payload.installation?.id);
@@ -101,7 +112,7 @@ async function handlePullRequest(env: Env, payload: any): Promise<void> {
 
   // 1. 读取配置与文件列表
   const repoConfig = await loadRepoConfig(gh, owner, repo);
-  const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
+  const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`);
   if (!filesRes.ok) throw new Error(`读取文件列表失败：${filesRes.status}`);
   const files = (await filesRes.json()) as Array<{
     filename: string;
@@ -118,7 +129,7 @@ async function handlePullRequest(env: Env, payload: any): Promise<void> {
     .slice(0, Number(env.MAX_DIFF_LENGTH ?? 40000));
 
   if (!diff.trim()) {
-    await postReview(gh, owner, repo, pr.number, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
+    await postReview(gh, owner, repo, pullNumber, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
     return;
   }
 
@@ -139,7 +150,7 @@ async function handlePullRequest(env: Env, payload: any): Promise<void> {
   }
 
   // 3. 以 Review 形式回写 PR
-  await postReview(gh, owner, repo, pr.number, report);
+  await postReview(gh, owner, repo, pullNumber, report);
 }
 
 async function loadRepoConfig(gh: (path: string, options?: { method?: string; body?: unknown }) => Promise<Response>, owner: string, repo: string): Promise<RepoConfig> {

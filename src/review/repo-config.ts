@@ -160,3 +160,24 @@ export function filterByMinSeverity(result: ReviewResult, minSeverity?: Severity
   const issues = result.issues.filter((i: ReviewIssue) => SEVERITY_RANK[i.severity] >= min);
   return { summary: result.summary, issues };
 }
+
+/** 从仓库读取 .github/heimdall.yml（GitHub API contents，框架无关） */
+export interface RepoOctokit {
+  repos: {
+    getContent(args: any): Promise<any>;
+  };
+}
+
+export async function loadRepoConfigFromOctokit(
+  octokit: RepoOctokit,
+  owner: string,
+  repo: string
+): Promise<RepoConfig> {
+  try {
+    const res = await octokit.repos.getContent({ owner, repo, path: ".github/heimdall.yml" });
+    if (!res.data.content) return {};
+    return parseHeimdallConfig(Buffer.from(res.data.content, "base64").toString("utf8"));
+  } catch {
+    return {}; // 无配置文件（404）按默认行为
+  }
+}

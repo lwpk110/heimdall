@@ -3,17 +3,24 @@ import { loadConfig } from "../config";
 import { generateReview } from "./providers";
 import { parseReview, renderMarkdown, ReviewResult } from "./parse";
 import { SYSTEM_PROMPT } from "./prompt";
-import { filterByMinSeverity, filterFiles, RepoConfig } from "./repo-config";
+import { filterByMinSeverity, filterFiles, loadRepoConfigFromOctokit, RepoConfig } from "./repo-config";
 
-export async function runReview(context: Context<"pull_request">): Promise<void> {
+export interface ReviewTarget {
+  octokit: Context["octokit"];
+  owner: string;
+  repo: string;
+  pullNumber: number;
+}
+
+export async function runReview(target: ReviewTarget): Promise<void> {
+  const { octokit, owner, repo, pullNumber } = target;
   const config = loadConfig();
-  const repoConfig = await loadRepoConfig(context);
-  const pr = context.pullRequest();
+  const repoConfig = await loadRepoConfigFromOctokit(octokit, owner, repo);
 
-  const { data: files } = await context.octokit.pulls.listFiles({
-    owner: pr.owner,
-    repo: pr.repo,
-    pull_number: pr.pull_number,
+  const { data: files } = await octokit.pulls.listFiles({
+    owner,
+    repo,
+    pull_number: pullNumber,
     per_page: 100,
   });
 
@@ -26,10 +33,7 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     .slice(0, config.maxDiffLength);
 
   if (!patch.trim()) {
-    await postSummary(
-      context,
-      renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。")
-    );
+    await postSummary(target, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
     return;
   }
 
@@ -45,24 +49,26 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await postSummary(context, renderReport(stats, `⚠️ 审查失败：${message}`));
+    await postSummary(target, renderReport(stats, `⚠️ 审查失败：${message}`));
     return;
   }
 
   const parsed = parseReview(rawReport);
   if (!parsed) {
     // 结构化解析失败：降级为整体报告，不静默丢失审查内容
-    await postSummary(context, renderReport(stats, rawReport));
+    await postSummary(target, renderReport(stats, rawReport));
     return;
   }
 
-  await postInlineReview(context, stats, filterByMinSeverity(parsed, repoConfig.min_severity));
+  await postInlineReview(target, stats, filterByMinSeverity(parsed, repoConfig.min_severity));
 }
 
-async function loadRepoConfig(context: Context<"pull_request">): Promise<RepoConfig> {
-  const raw = await context.config("heimdall.yml");
-  if (!raw || typeof raw !== "object") return {};
-  return raw as RepoConfig;
+export function prParams(target: ReviewTarget): {
+  owner: string;
+  repo: string;
+  pull_number: number;
+} {
+  return { owner: target.owner, repo: target.repo, pull_number: target.pullNumber };
 }
 
 interface DiffStats {
@@ -87,12 +93,7 @@ function renderReport(stats: DiffStats, content: string): string {
 ${content}`;
 }
 
-async function postInlineReview(
-  context: Context<"pull_request">,
-  stats: DiffStats,
-  result: ReviewResult
-): Promise<void> {
-  const pr = context.pullRequest();
+async function postInlineReview(target: ReviewTarget, stats: DiffStats, result: ReviewResult): Promise<void> {
   const body = renderReport(stats, renderMarkdown(result));
 
   const comments = result.issues
@@ -105,15 +106,13 @@ async function postInlineReview(
     }));
 
   if (comments.length === 0) {
-    await postSummary(context, body);
+    await postSummary(target, body);
     return;
   }
 
   try {
-    await context.octokit.pulls.createReview({
-      owner: pr.owner,
-      repo: pr.repo,
-      pull_number: pr.pull_number,
+    await target.octokit.pulls.createReview({
+      ...prParams(target),
       event: "COMMENT",
       body,
       comments,
@@ -121,7 +120,7 @@ async function postInlineReview(
   } catch (err) {
     // 行号映射失败（GitHub 422 等）：降级为整体报告
     console.error("行内评论发布失败，降级为整体报告：", err instanceof Error ? err.message : err);
-    await postSummary(context, body);
+    await postSummary(target, body);
   }
 }
 
@@ -136,12 +135,9 @@ function severityLabel(severity: "critical" | "important" | "normal"): string {
   }
 }
 
-async function postSummary(context: Context<"pull_request">, body: string): Promise<void> {
-  const pr = context.pullRequest();
-  await context.octokit.pulls.createReview({
-    owner: pr.owner,
-    repo: pr.repo,
-    pull_number: pr.pull_number,
+async function postSummary(target: ReviewTarget, body: string): Promise<void> {
+  await target.octokit.pulls.createReview({
+    ...prParams(target),
     event: "COMMENT",
     body,
   });
