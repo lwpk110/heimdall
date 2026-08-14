@@ -45,20 +45,28 @@ jobs:
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          GITHUB_APP_ID: ${{ secrets.GITHUB_APP_ID }}
-          GITHUB_PRIVATE_KEY: ${{ secrets.GITHUB_PRIVATE_KEY }}
-          WEBHOOK_SECRET: ${{ secrets.WEBHOOK_SECRET }}
+          # GitHub 不允许 repo secret 以 GITHUB_ 开头，故用 GH_ 前缀
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_PRIVATE_KEY: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
           AI_API_KEY: ${{ secrets.AI_API_KEY }}
           AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: |
           set -euo pipefail
-          # 只对配置了的 secret 做写入；值从 stdin 传入（支持多行私钥）
-          for s in GITHUB_APP_ID GITHUB_PRIVATE_KEY WEBHOOK_SECRET AI_API_KEY AI_BASE_URL ANTHROPIC_API_KEY OPENAI_API_KEY; do
-            v="${!s}"
+          # put <worker_secret名> <repo_secret对应的env变量>：只对配置了的 secret 写入，值从 stdin 传入（支持多行私钥）
+          put() {
+            v="${!2}"
             if [ -n "$v" ]; then
-              printf '%s' "$v" | npx wrangler secret put "$s" --config worker/wrangler.toml
-              echo "已写入 secret: $s"
+              printf '%s' "$v" | npx wrangler secret put "$1" --config worker/wrangler.toml
+              echo "已写入 secret: $1"
             fi
-          done
+          }
+          put GITHUB_APP_ID GH_APP_ID
+          put GITHUB_PRIVATE_KEY GH_APP_PRIVATE_KEY
+          put WEBHOOK_SECRET GH_WEBHOOK_SECRET
+          put AI_API_KEY AI_API_KEY
+          put AI_BASE_URL AI_BASE_URL
+          put ANTHROPIC_API_KEY ANTHROPIC_API_KEY
+          put OPENAI_API_KEY OPENAI_API_KEY
