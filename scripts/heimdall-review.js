@@ -34,7 +34,14 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——来自漫威宇�
 
 要求：
 - 用中文输出，简洁、具体、可执行
-- 用 markdown 分三节：【严重问题】【建议改进】【良好实践】
+- 严格按下面的结构输出（变更统计行由系统生成，你不需要输出）：
+  **变更概述**：用一句话说明本次 PR 改了什么、影响面、需要关注的点
+  ### 🔴 严重问题
+  （列出会导致 bug / 安全风险 / 明显错误的严重问题，尽量带文件名与行号；没有则写"未发现"）
+  ### 🟡 建议改进
+  （列出性能、可读性、健壮性方面的建议；没有可省略该小节）
+  ### 🟢 良好实践
+  （列出值得肯定的实现；没有可省略该小节）
 - 每个问题尽量指出所在文件和大致位置
 - 直接给出有价值的技术判断，不要客套
 - 如果 diff 没有明显问题，如实说明即可，不要为了凑数而挑刺`;
@@ -125,8 +132,9 @@ async function postReview(body) {
 }
 
 async function main() {
-  // 1. 读取 diff
+  // 1. 读取 diff 与变更统计
   const files = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
+  const stats = diffStats(files);
   const diff = files
     .filter((f) => f.patch)
     .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
@@ -134,7 +142,7 @@ async function main() {
     .slice(0, Number(MAX_DIFF_LENGTH));
 
   if (!diff.trim()) {
-    await postReview("海姆达尔：本次 PR 没有可审查的代码变更。");
+    await postReview(renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
     console.log("海姆达尔：无可审查变更");
     return;
   }
@@ -144,14 +152,30 @@ async function main() {
   try {
     report = await generateReview(diff);
   } catch (err) {
-    await postReview(`## 海姆达尔 · 代码审查报告\n\n⚠️ 审查失败：${err.message}`);
+    await postReview(renderReport(stats, `⚠️ 审查失败：${err.message}`));
     console.error("审查失败：", err.message);
     process.exit(1);
   }
 
   // 3. 发布审查
-  await postReview(`## 海姆达尔 · 代码审查报告\n\n${report}`);
+  await postReview(renderReport(stats, report));
   console.log("海姆达尔审查完成");
+}
+
+function diffStats(files) {
+  return {
+    files: files.length,
+    additions: files.reduce((sum, f) => sum + (f.additions || 0), 0),
+    deletions: files.reduce((sum, f) => sum + (f.deletions || 0), 0),
+  };
+}
+
+function renderReport(stats, content) {
+  return `## 海姆达尔 · 代码审查报告
+
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。
+
+${content}`;
 }
 
 main().catch((err) => {
