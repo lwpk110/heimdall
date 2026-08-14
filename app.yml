@@ -1,0 +1,17 @@
+# GitHub App Manifest —— 可通过此文件一键注册 GitHub App
+# 注册方式见 README「快速开始」
+name: heimdall
+description: 海姆达尔 (Heimdall) — AI 驱动的代码审查机器人
+url: https://github.com
+
+# 部署后改成你的真实 Webhook 地址（示例：https://heimdall.<你的子域>.workers.dev/api/github/webhooks）
+hook_attributes:
+  url: https://your-domain.example.com/api/github/webhooks
+
+default_permissions:
+  metadata: read
+  contents: read
+  pull_requests: write
+
+default_events:
+  - pull_request

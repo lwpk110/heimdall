@@ -1,0 +1,33 @@
+# 海姆达尔 (Heimdall) — GitHub Actions 模式
+# 复制本文件到「被审查的仓库」的 .github/workflows/ 目录，
+# 并将 scripts/heimdall-review.js 一并复制到该仓库 scripts/ 目录。
+name: Heimdall Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  heimdall-review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 海姆达尔代码审查
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # AI Key 在目标仓库的 Settings → Secrets 配置
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # 可选：通过仓库 Variables 覆盖
+          AI_PROVIDER: ${{ vars.AI_PROVIDER || 'anthropic' }}
+          AI_MODEL: ${{ vars.AI_MODEL }}
+        run: node scripts/heimdall-review.js

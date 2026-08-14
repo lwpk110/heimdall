@@ -1,0 +1,27 @@
+{
+  "name": "heimdall",
+  "version": "0.1.0",
+  "description": "海姆达尔 (Heimdall) — AI 驱动的 GitHub 代码审查机器人",
+  "main": "lib/index.js",
+  "type": "commonjs",
+  "scripts": {
+    "build": "tsc",
+    "start": "node lib/index.js",
+    "dev": "tsc && node lib/index.js",
+    "worker:dev": "wrangler dev --config worker/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config worker/wrangler.toml"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "probot": "^13.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.4.5",
+    "wrangler": "^3.78.0"
+  },
+  "license": "MIT"
+}
