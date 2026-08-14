@@ -14,6 +14,8 @@ export interface RepoConfig {
   min_severity?: Severity;
   /** 团队自定义审查指令，追加到系统 prompt */
   instructions?: string;
+  /** 可按需触发 @heimdall review 的账号白名单；为空表示不限制 */
+  manual_reviewers?: string[];
 }
 
 /** 解析 heimdall.yml（支持标量、内联数组、块列表、块文本 |，忽略其他键以兼容未来扩展） */
@@ -87,6 +89,7 @@ function setValue(cfg: RepoConfig, key: keyof RepoConfig, value: unknown): void 
       break;
     case "include":
     case "exclude":
+    case "manual_reviewers":
       if (Array.isArray(value)) cfg[key] = value.map(String);
       break;
     case "min_severity":
