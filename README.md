@@ -128,6 +128,30 @@ docker build -t heimdall . && docker run --env-file .env -p 3000:3000 heimdall
 | `AI_MODEL` | 覆盖默认模型 | 全部 |
 | `MAX_DIFF_LENGTH` | 发送给 AI 的 diff 上限字符数（默认 40000） | 全部 |
 
+## 配置文件 `.github/heimdall.yml`（可选）
+
+在「被审查的仓库」放一个 `.github/heimdall.yml`，即可覆盖审查范围与规则，配置随仓库版本化：
+
+```yaml
+version: 1
+
+# 只审查这些文件（glob，支持 * ** ?）；不配置则审查全部
+include: ["*.ts", "*.js", "*.py", "*.go"]
+
+# 排除这些文件（glob，优先级高于 include）
+exclude: ["**/generated/**", "**/*.min.js", "**/package-lock.json"]
+
+# 低于该严重度的 issue 不进报告：critical | important | normal
+min_severity: normal
+
+# 团队自定义审查指令，追加到海姆达尔的系统 prompt
+instructions: |
+  本项目使用 TypeScript，遵循 strict 模式。
+  禁止使用 any。
+```
+
+> 三种部署模式均支持此配置；未配置时按默认行为审查全部文件。
+
 ## 架构
 
 三种形态共享同一套审查内核：
@@ -187,7 +211,7 @@ heimdall/
 - [x] 支持更多 AI 提供方（Gemini、本地模型）→ 进行中
 - [ ] 基于文件变更规模的审查分级
 - [ ] 审查结果去重 / 增量审查
-- [ ] `.github/heimdall.yml` 配置化（见 PRD）
+- [x] `.github/heimdall.yml` 配置化（见 PRD）
 
 ## License
 

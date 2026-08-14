@@ -91,7 +91,7 @@ async function gh(path, options = {}) {
   return res.json();
 }
 
-async function generateReview(diff) {
+async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   if (provider === "openai") {
     if (!OPENAI_API_KEY) throw new Error("缺少 OPENAI_API_KEY");
     const res = await fetch("https://api.openai.com/v1/chat/completions", {
@@ -101,7 +101,7 @@ async function generateReview(diff) {
         model: AI_MODEL || "gpt-4o",
         max_tokens: 4096,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: diff },
         ],
       }),
@@ -122,7 +122,7 @@ async function generateReview(diff) {
     body: JSON.stringify({
       model: AI_MODEL || "claude-sonnet-4-5-20250929",
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: diff }],
     }),
   });
@@ -139,10 +139,12 @@ async function postReview(body) {
 }
 
 async function main() {
-  // 1. 读取 diff 与变更统计
+  // 1. 读取配置、diff 与变更统计
+  const repoConfig = await loadRepoConfig();
   const files = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
-  const stats = diffStats(files);
-  const diff = files
+  const reviewable = filterFiles(files, repoConfig);
+  const stats = diffStats(reviewable);
+  const diff = reviewable
     .filter((f) => f.patch)
     .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
     .join("\n\n")
@@ -154,10 +156,14 @@ async function main() {
     return;
   }
 
+  const systemPrompt = repoConfig.instructions
+    ? SYSTEM_PROMPT + "\n\n### 团队自定义审查指令\n" + repoConfig.instructions
+    : SYSTEM_PROMPT;
+
   // 2. 调用 LLM
   let rawReport;
   try {
-    rawReport = await generateReview(diff);
+    rawReport = await generateReview(diff, systemPrompt);
   } catch (err) {
     await postReview(renderReport(stats, `⚠️ 审查失败：${err.message}`));
     console.error("审查失败：", err.message);
@@ -171,9 +177,10 @@ async function main() {
     await postReview(renderReport(stats, rawReport));
     return;
   }
+  const filtered = filterByMinSeverity(result, repoConfig.min_severity);
 
-  const body = renderReport(stats, renderMarkdown(result));
-  const comments = result.issues
+  const body = renderReport(stats, renderMarkdown(filtered));
+  const comments = filtered.issues
     .filter((i) => i.line > 0)
     .map((i) => ({
       path: i.file,
@@ -194,6 +201,118 @@ async function main() {
     await postReview(body);
   }
   console.log("海姆达尔审查完成");
+}
+
+async function loadRepoConfig() {
+  try {
+    const data = await gh(`/repos/${owner}/${repo}/contents/.github/heimdall.yml`);
+    if (!data || !data.content) return {};
+    return parseHeimdallConfig(Buffer.from(data.content, "base64").toString("utf8"));
+  } catch (err) {
+    return {}; // 无配置文件（404）按默认行为
+  }
+}
+
+function parseHeimdallConfig(text) {
+  const cfg = {};
+  const lines = text.split(/\r?\n/);
+  let i = 0;
+  while (i < lines.length) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) { i++; continue; }
+    const match = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(trimmed);
+    if (!match) { i++; continue; }
+    const key = match[1];
+    const rest = match[2].trim();
+
+    if (rest === "|") {
+      const block = [];
+      i++;
+      while (i < lines.length && lines[i].startsWith(" ") && lines[i].trim() !== "") {
+        block.push(lines[i].replace(/^\s+/, ""));
+        i++;
+      }
+      if (block.length) cfg[key] = block.join("\n");
+      continue;
+    }
+    if (rest.startsWith("[")) {
+      const inner = rest.slice(1, rest.lastIndexOf("]"));
+      cfg[key] = inner.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
+      i++;
+      continue;
+    }
+    if (rest === "") {
+      const items = [];
+      i++;
+      while (i < lines.length && /^\s*-/.test(lines[i])) {
+        items.push(lines[i].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
+        i++;
+      }
+      if (items.length) cfg[key] = items; else i++;
+      continue;
+    }
+    cfg[key] = parseScalar(rest);
+    i++;
+  }
+  return cfg;
+}
+
+function parseScalar(raw) {
+  if (/^["'].*["']$/.test(raw)) return raw.slice(1, -1);
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
+  return raw;
+}
+
+function matchesAnyGlob(filename, patterns) {
+  return patterns.some((p) => globMatch(filename, p) || (!p.includes("/") && globMatch(filename.split("/").pop(), p)));
+}
+
+function globMatch(name, pattern) {
+  let re = "^";
+  for (let i = 0; i < pattern.length; i++) {
+    const c = pattern[i];
+    if (c === "*") {
+      if (pattern[i + 1] === "*") {
+        if (pattern[i + 2] === "/") {
+          re += "(?:.*/)?";
+          i += 2;
+        } else {
+          re += ".*";
+          i += 1;
+        }
+      } else {
+        re += "[^/]*";
+      }
+    } else if (c === "?") {
+      re += "[^/]";
+    } else if (/[.\\+^$(){}[\]|]/.test(c)) {
+      re += "\\" + c;
+    } else {
+      re += c;
+    }
+  }
+  re += "$";
+  return new RegExp(re).test(name);
+}
+
+function filterFiles(files, cfg) {
+  if (!(cfg.include && cfg.include.length) && !(cfg.exclude && cfg.exclude.length)) return files;
+  return files.filter((f) => {
+    if (cfg.include && cfg.include.length && !matchesAnyGlob(f.filename, cfg.include)) return false;
+    if (cfg.exclude && cfg.exclude.length && matchesAnyGlob(f.filename, cfg.exclude)) return false;
+    return true;
+  });
+}
+
+const SEVERITY_RANK = { critical: 3, important: 2, normal: 1 };
+
+function filterByMinSeverity(result, minSeverity) {
+  if (!minSeverity) return result;
+  const min = SEVERITY_RANK[minSeverity];
+  return { summary: result.summary, issues: result.issues.filter((i) => SEVERITY_RANK[i.severity] >= min) };
 }
 
 async function postReviewWithComments(body, comments) {

@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
-import { parseReview, renderMarkdown } from "../src/review/parse";
+import { parseReview, renderMarkdown, ReviewResult } from "../src/review/parse";
 import { SYSTEM_PROMPT } from "../src/review/prompt";
+import { filterByMinSeverity, filterFiles, parseHeimdallConfig, RepoConfig } from "../src/review/repo-config";
 
 interface Env {
   GITHUB_APP_ID: string;
@@ -81,46 +82,114 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
 
 async function handlePullRequest(env: Env, payload: any): Promise<void> {
   const pr = payload.pull_request;
+  const owner = payload.repository.owner.login;
+  const repo = payload.repository.name;
   const token = await getInstallationToken(env, payload.installation?.id);
-
-  // 1. 读取 diff
-  const diffRes = await fetch(pr.diff_url, {
-    headers: {
-      authorization: `Bearer ${token}`,
-      accept: "application/vnd.github.diff",
-    },
-  });
-  if (!diffRes.ok) throw new Error(`读取 diff 失败：${diffRes.status}`);
-  const diff = (await diffRes.text()).slice(0, Number(env.MAX_DIFF_LENGTH ?? 40000));
-
-  // 2. 调用 LLM 生成审查报告
-  let report: string;
-  try {
-    const raw = await generateReview(env, diff);
-    const result = parseReview(raw);
-    report = result ? renderMarkdown(result) : raw;
-  } catch (err) {
-    report = `⚠️ 审查失败：${err instanceof Error ? err.message : String(err)}`;
-  }
-
-  // 3. 以 Review 形式回写 PR
-  const reviewRes = await fetch(
-    `https://api.github.com/repos/${payload.repository.owner.login}/${payload.repository.name}/pulls/${pr.number}/reviews`,
-    {
-      method: "POST",
+  const gh = (path: string, options: { method?: string; body?: unknown } = {}) =>
+    fetch(`https://api.github.com${path}`, {
+      method: options.method || "GET",
       headers: {
         authorization: `Bearer ${token}`,
         accept: "application/vnd.github+json",
         "x-github-api-version": "2022-11-28",
-        "content-type": "application/json",
+        ...(options.body ? { "content-type": "application/json" } : {}),
       },
-      body: JSON.stringify({ event: "COMMENT", body: `## 海姆达尔 · 代码审查报告\n\n${report}` }),
-    }
-  );
-  if (!reviewRes.ok) throw new Error(`发布 review 失败：${reviewRes.status} ${await reviewRes.text()}`);
+      body: options.body ? JSON.stringify(options.body) : undefined,
+    });
+
+  // 1. 读取配置与文件列表
+  const repoConfig = await loadRepoConfig(gh, owner, repo);
+  const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
+  if (!filesRes.ok) throw new Error(`读取文件列表失败：${filesRes.status}`);
+  const files = (await filesRes.json()) as Array<{
+    filename: string;
+    patch?: string;
+    additions?: number;
+    deletions?: number;
+  }>;
+  const reviewable = filterFiles(files, repoConfig);
+  const stats = diffStats(reviewable);
+  const diff = reviewable
+    .filter((f) => f.patch)
+    .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
+    .join("\n\n")
+    .slice(0, Number(env.MAX_DIFF_LENGTH ?? 40000));
+
+  if (!diff.trim()) {
+    await postReview(gh, owner, repo, pr.number, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
+    return;
+  }
+
+  const systemPrompt = repoConfig.instructions
+    ? SYSTEM_PROMPT + "\n\n### 团队自定义审查指令\n" + repoConfig.instructions
+    : SYSTEM_PROMPT;
+
+  // 2. 调用 LLM 生成审查报告
+  let report: string;
+  try {
+    const raw = await generateReview(env, diff, systemPrompt);
+    const parsed = parseReview(raw);
+    report = parsed
+      ? renderReport(stats, renderMarkdown(filterByMinSeverity(parsed, repoConfig.min_severity)))
+      : renderReport(stats, raw);
+  } catch (err) {
+    report = renderReport(stats, `⚠️ 审查失败：${err instanceof Error ? err.message : String(err)}`);
+  }
+
+  // 3. 以 Review 形式回写 PR
+  await postReview(gh, owner, repo, pr.number, report);
 }
 
-async function generateReview(env: Env, diff: string): Promise<string> {
+async function loadRepoConfig(gh: (path: string, options?: { method?: string; body?: unknown }) => Promise<Response>, owner: string, repo: string): Promise<RepoConfig> {
+  try {
+    const res = await gh(`/repos/${owner}/${repo}/contents/.github/heimdall.yml`);
+    if (!res.ok) return {};
+    const data = (await res.json()) as { content?: string };
+    if (!data.content) return {};
+    const text = Buffer.from(data.content, "base64").toString("utf8");
+    return parseHeimdallConfig(text);
+  } catch {
+    return {};
+  }
+}
+
+interface DiffStats {
+  files: number;
+  additions: number;
+  deletions: number;
+}
+
+function diffStats(files: Array<{ additions?: number; deletions?: number }>): DiffStats {
+  return {
+    files: files.length,
+    additions: files.reduce((sum, f) => sum + (f.additions ?? 0), 0),
+    deletions: files.reduce((sum, f) => sum + (f.deletions ?? 0), 0),
+  };
+}
+
+function renderReport(stats: DiffStats, content: string): string {
+  return `## 海姆达尔 · 代码审查报告
+
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。
+
+${content}`;
+}
+
+async function postReview(
+  gh: (path: string, options?: { method?: string; body?: unknown }) => Promise<Response>,
+  owner: string,
+  repo: string,
+  pullNumber: number,
+  body: string
+): Promise<void> {
+  const res = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/reviews`, {
+    method: "POST",
+    body: { event: "COMMENT", body },
+  });
+  if (!res.ok) throw new Error(`发布 review 失败：${res.status} ${await res.text()}`);
+}
+
+async function generateReview(env: Env, diff: string, systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
   const provider = (env.AI_PROVIDER ?? "anthropic").toLowerCase();
 
   if (provider === "openai") {
@@ -132,7 +201,7 @@ async function generateReview(env: Env, diff: string): Promise<string> {
         model: env.AI_MODEL ?? "gpt-4o",
         max_tokens: 4096,
         messages: [
-          { role: "system", content: SYSTEM_PROMPT },
+          { role: "system", content: systemPrompt },
           { role: "user", content: diff },
         ],
       }),
@@ -153,7 +222,7 @@ async function generateReview(env: Env, diff: string): Promise<string> {
     body: JSON.stringify({
       model: env.AI_MODEL ?? "claude-sonnet-4-5-20250929",
       max_tokens: 4096,
-      system: SYSTEM_PROMPT,
+      system: systemPrompt,
       messages: [{ role: "user", content: diff }],
     }),
   });
