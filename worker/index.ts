@@ -56,7 +56,7 @@ export default {
       const comment = payload.comment;
       // 只处理 PR 上的评论，且内容匹配 @heimdall review
       if (!issue?.pull_request) return new Response("Ignored", { status: 200 });
-      if (!/@heimdall\s+review/i.test(comment?.body ?? "")) return new Response("Ignored", { status: 200 });
+      if (!/@heimdall(?:\s+review)?\b/i.test(comment?.body ?? "")) return new Response("Ignored", { status: 200 });
       if (comment?.user?.type === "Bot") return new Response("Ignored", { status: 200 });
       ctx.waitUntil(runWebhookReview(env, payload, issue.number, comment?.user?.login).catch((err) => console.error("审查失败:", err)));
       return new Response("OK", { status: 200 });
