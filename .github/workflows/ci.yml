@@ -1,0 +1,27 @@
+# CI —— 海姆达尔本仓库的持续集成
+# 注意：这不是「被审查仓库」要复制的 heimdall-review.yml，
+# 而是保证本项目自身代码质量的构建检查。
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: 安装依赖
+        run: npm ci
+
+      - name: TypeScript 构建
+        run: npm run build
