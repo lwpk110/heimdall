@@ -142,10 +142,12 @@ docker build -t heimdall . && docker run --env-file .env -p 3000:3000 heimdall
 | `WEBHOOK_SECRET` | Webhook secret | Workers / 自托管 |
 | `PRIVATE_KEY` | App 私钥（换行用 `\n`） | Workers / 自托管 |
 | `AI_PROVIDER` | `anthropic` 或 `openai` 或 `gemini` | 全部 |
+| `AI_API_KEY` | 统一 API Key（走代理网关时最省事；未设置则回退到提供方专属 key） | 全部 |
+| `AI_BASE_URL` | 统一 API 基地址（代理网关；未设置则回退到提供方专属 base url / 官方地址） | 全部 |
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 全部 |
 | `OPENAI_API_KEY` | OpenAI API Key | 全部 |
 | `GEMINI_API_KEY` | Gemini API Key（Google AI Studio 获取） | 全部 |
-| `OPENAI_BASE_URL` | OpenAI 兼容端点（本地模型 Ollama / vLLM 可指向自建地址） | 全部 |
+| `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL` | 提供方专属 base url（可选，优先级低于 `AI_BASE_URL`；`OPENAI_BASE_URL` 可指向 Ollama / vLLM 等本地模型） | 全部 |
 | `AI_MODEL` | 覆盖默认模型（anthropic: claude-sonnet-4-5 / openai: gpt-4o / gemini: gemini-2.0-flash） | 全部 |
 | `MAX_DIFF_LENGTH` | 发送给 AI 的 diff 上限字符数（默认 40000） | 全部 |
 

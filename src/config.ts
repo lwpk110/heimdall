@@ -9,8 +9,10 @@ const MODEL_DEFAULTS: Record<AiProvider, string> = {
 export interface AppConfig {
   provider: AiProvider;
   model: string;
-  /** OpenAI 兼容端点基地址（本地模型如 Ollama / vLLM 可指向自建地址） */
-  openaiBaseUrl: string;
+  /** 统一 AI_API_KEY；未设置时在 providers 层回退到提供方专属 key */
+  apiKey: string;
+  /** 统一 AI_BASE_URL（代理网关）；未设置时回退到提供方专属 base url / 官方默认 */
+  baseUrl: string;
   /** 发送给 AI 的 diff 最大字符数 */
   maxDiffLength: number;
 }
@@ -26,7 +28,12 @@ export function loadConfig(): AppConfig {
   return {
     provider: provider as AiProvider,
     model: process.env.AI_MODEL ?? MODEL_DEFAULTS[provider as AiProvider],
-    openaiBaseUrl: (process.env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, ""),
+    apiKey: process.env.AI_API_KEY ?? "",
+    baseUrl: trimTrailingSlash(process.env.AI_BASE_URL ?? ""),
     maxDiffLength: Number(process.env.MAX_DIFF_LENGTH ?? 40000),
   };
+}
+
+function trimTrailingSlash(url: string): string {
+  return url.replace(/\/+$/, "");
 }

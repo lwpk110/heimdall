@@ -17,10 +17,14 @@ const {
   GITHUB_REPOSITORY,
   GITHUB_EVENT_PATH,
   AI_PROVIDER,
+  AI_API_KEY,
+  AI_BASE_URL,
   ANTHROPIC_API_KEY,
   OPENAI_API_KEY,
   GEMINI_API_KEY,
   OPENAI_BASE_URL,
+  ANTHROPIC_BASE_URL,
+  GEMINI_BASE_URL,
   AI_MODEL,
   MAX_DIFF_LENGTH = "40000",
 } = process.env;
@@ -79,18 +83,14 @@ const provider = (AI_PROVIDER || "anthropic").toLowerCase();
 
 // 未配置对应 AI 密钥时优雅跳过，避免每次 PR 的 CI 检查变红
 const requiredKey =
-  provider === "openai"
+  AI_API_KEY ||
+  (provider === "openai"
     ? OPENAI_API_KEY
     : provider === "gemini"
       ? GEMINI_API_KEY
-      : ANTHROPIC_API_KEY;
+      : ANTHROPIC_API_KEY);
 if (!requiredKey) {
-  const keyName =
-    provider === "openai"
-      ? "OPENAI_API_KEY"
-      : provider === "gemini"
-        ? "GEMINI_API_KEY"
-        : "ANTHROPIC_API_KEY";
+  const keyName = AI_API_KEY ? "AI_API_KEY" : provider === "openai" ? "OPENAI_API_KEY" : provider === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
   console.log(`海姆达尔：未配置 ${keyName}，本次跳过审查。`);
   console.log("提示：请在仓库 Settings → Secrets and variables → Actions 添加对应密钥后启用。");
   process.exit(0);
@@ -116,11 +116,12 @@ async function gh(path, options = {}) {
 
 async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   if (provider === "openai") {
-    if (!OPENAI_API_KEY) throw new Error("缺少 OPENAI_API_KEY");
-    const baseUrl = (OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/$/, "");
+    const apiKey = AI_API_KEY || OPENAI_API_KEY;
+    if (!apiKey) throw new Error("缺少 OPENAI_API_KEY");
+    const baseUrl = (AI_BASE_URL || OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
     const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "content-type": "application/json", authorization: `Bearer ${OPENAI_API_KEY}` },
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
         model: AI_MODEL || "gpt-4o",
         max_tokens: 4096,
@@ -136,12 +137,14 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   }
 
   if (provider === "gemini") {
-    if (!GEMINI_API_KEY) throw new Error("缺少 GEMINI_API_KEY");
+    const apiKey = AI_API_KEY || GEMINI_API_KEY;
+    if (!apiKey) throw new Error("缺少 GEMINI_API_KEY");
+    const baseUrl = (AI_BASE_URL || GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
     const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/${AI_MODEL || "gemini-2.0-flash"}:generateContent`,
+      `${baseUrl}/v1beta/models/${AI_MODEL || "gemini-2.0-flash"}:generateContent`,
       {
         method: "POST",
-        headers: { "content-type": "application/json", "x-goog-api-key": GEMINI_API_KEY },
+        headers: { "content-type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: systemPrompt }] },
           contents: [{ role: "user", parts: [{ text: diff }] }],
@@ -153,12 +156,14 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
     return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
   }
 
-  if (!ANTHROPIC_API_KEY) throw new Error("缺少 ANTHROPIC_API_KEY");
-  const res = await fetch("https://api.anthropic.com/v1/messages", {
+  const apiKey = AI_API_KEY || ANTHROPIC_API_KEY;
+  if (!apiKey) throw new Error("缺少 ANTHROPIC_API_KEY");
+  const baseUrl = (AI_BASE_URL || ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
+  const res = await fetch(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
-      "x-api-key": ANTHROPIC_API_KEY,
+      "x-api-key": apiKey,
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify({
