@@ -92,6 +92,7 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
       authorization: `Bearer ${jwt}`,
       accept: "application/vnd.github+json",
       "x-github-api-version": "2022-11-28",
+      "user-agent": "heimdall-worker",
     },
   });
   if (!res.ok) throw new Error(`获取安装令牌失败：${res.status} ${await res.text()}`);
@@ -110,6 +111,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
         authorization: `Bearer ${token}`,
         accept: "application/vnd.github+json",
         "x-github-api-version": "2022-11-28",
+        "user-agent": "heimdall-worker",
         ...(options.body ? { "content-type": "application/json" } : {}),
       },
       body: options.body ? JSON.stringify(options.body) : undefined,
