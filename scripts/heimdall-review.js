@@ -49,6 +49,16 @@ if (!pr) {
 const [owner, repo] = GITHUB_REPOSITORY.split("/");
 const provider = (AI_PROVIDER || "anthropic").toLowerCase();
 
+// 未配置对应 AI 密钥时优雅跳过，避免每次 PR 的 CI 检查变红
+const requiredKey =
+  provider === "openai" ? OPENAI_API_KEY : ANTHROPIC_API_KEY;
+if (!requiredKey) {
+  const keyName = provider === "openai" ? "OPENAI_API_KEY" : "ANTHROPIC_API_KEY";
+  console.log(`海姆达尔：未配置 ${keyName}，本次跳过审查。`);
+  console.log("提示：请在仓库 Settings → Secrets and variables → Actions 添加对应密钥后启用。");
+  process.exit(0);
+}
+
 async function gh(path, options = {}) {
   const res = await fetch(`https://api.github.com${path}`, {
     method: options.method || "GET",
