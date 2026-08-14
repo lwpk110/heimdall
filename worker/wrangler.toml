@@ -5,6 +5,7 @@ compatibility_flags = ["nodejs_compat"]
 
 [vars]
 AI_PROVIDER = "anthropic"
+AI_MODEL = "claude-sonnet-5"
 MAX_DIFF_LENGTH = "40000"
 
 # 通过 wrangler secret 配置敏感信息（不要写进仓库）：
