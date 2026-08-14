@@ -47,7 +47,7 @@ export default {
       }
       const pr = payload.pull_request;
       if (pr.draft || pr.user?.type === "Bot") return new Response("Ignored", { status: 200 });
-      ctx.waitUntil(runWebhookReview(env, payload, pr.number, undefined, pr.head.sha).catch((err) => console.error("审查失败:", err)));
+      ctx.waitUntil(runWebhookReview(env, payload, pr.number, undefined, pr.head.sha, true).catch((err) => console.error("审查失败:", err)));
       return new Response("OK", { status: 200 });
     }
 
@@ -99,7 +99,7 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
   return data.token;
 }
 
-async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string, dedupeSha?: string): Promise<void> {
+async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string, dedupeSha?: string, isAuto = false): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
   const token = await getInstallationToken(env, payload.installation?.id);
@@ -117,6 +117,10 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
 
   // 1. 读取配置与文件列表
   const repoConfig = await loadRepoConfig(gh, owner, repo);
+  if (isAuto && repoConfig.auto_review === false) {
+    console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
+    return;
+  }
   if (triggerAuthor && !isAllowedManualReviewer(repoConfig.manual_reviewers, triggerAuthor)) {
     console.log(`海姆达尔：@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`);
     return;

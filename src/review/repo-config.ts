@@ -18,6 +18,8 @@ export interface RepoConfig {
   manual_reviewers?: string[];
   /** 存在未解决 critical 问题时设置 heimdall/critical 状态为失败，阻断合并 */
   block_on_critical?: boolean;
+  /** 是否自动审查（PR 打开/更新时）；设为 false 则仅响应 @heimdall review（默认 true） */
+  auto_review?: boolean;
 }
 
 /** 解析 heimdall.yml（支持标量、内联数组、块列表、块文本 |，忽略其他键以兼容未来扩展） */
@@ -104,6 +106,9 @@ function setValue(cfg: RepoConfig, key: keyof RepoConfig, value: unknown): void 
       break;
     case "block_on_critical":
       if (typeof value === "boolean") cfg.block_on_critical = value;
+      break;
+    case "auto_review":
+      if (typeof value === "boolean") cfg.auto_review = value;
       break;
   }
 }

@@ -183,6 +183,10 @@ manual_reviewers:
 # 存在未解决 critical 问题时，把 heimdall/critical 状态置为 failure
 # （在分支保护里把该检查加入 required status checks 即可真正阻断合并）
 block_on_critical: true
+
+# 设为 false 时关闭自动审查（PR 打开/更新不再触发），仅响应 @heimdall review
+# 手动触发——类似 Copilot Code Review 的按需模式（默认 true）
+auto_review: false
 ```
 
 > 三种部署模式均支持此配置；未配置时按默认行为审查全部文件。

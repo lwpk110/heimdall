@@ -192,6 +192,11 @@ async function main() {
     console.log("海姆达尔：评论者不在 manual_reviewers 白名单，忽略触发");
     return;
   }
+  // auto_review 关闭时：自动审查（PR 事件）跳过，仅响应 @heimdall review 评论
+  if (!event.issue && repoConfig.auto_review === false) {
+    console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
+    return;
+  }
   // 同 commit 去重：自动触发时若该 commit 已审查过则跳过（手动触发不重复）
   if (!event.issue && event.pull_request?.head?.sha) {
     const existing = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/reviews?per_page=100`);
