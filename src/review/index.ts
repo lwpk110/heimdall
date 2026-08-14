@@ -14,6 +14,7 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     per_page: 100,
   });
 
+  const stats = diffStats(files);
   const patch = files
     .filter((f) => f.patch)
     .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
@@ -21,7 +22,10 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     .slice(0, config.maxDiffLength);
 
   if (!patch.trim()) {
-    await postSummary(context, "海姆达尔：本次 PR 没有可审查的代码变更。");
+    await postSummary(
+      context,
+      renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。")
+    );
     return;
   }
 
@@ -33,11 +37,33 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await postSummary(context, `## 海姆达尔 · 代码审查报告\n\n⚠️ 审查失败：${message}`);
+    await postSummary(context, renderReport(stats, `⚠️ 审查失败：${message}`));
     return;
   }
 
-  await postSummary(context, `## 海姆达尔 · 代码审查报告\n\n${report}`);
+  await postSummary(context, renderReport(stats, report));
+}
+
+interface DiffStats {
+  files: number;
+  additions: number;
+  deletions: number;
+}
+
+function diffStats(files: Array<{ additions?: number; deletions?: number }>): DiffStats {
+  return {
+    files: files.length,
+    additions: files.reduce((sum, f) => sum + (f.additions ?? 0), 0),
+    deletions: files.reduce((sum, f) => sum + (f.deletions ?? 0), 0),
+  };
+}
+
+function renderReport(stats: DiffStats, content: string): string {
+  return `## 海姆达尔 · 代码审查报告
+
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。
+
+${content}`;
 }
 
 async function postSummary(context: Context<"pull_request">, body: string): Promise<void> {
