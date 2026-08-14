@@ -10,6 +10,8 @@ interface Env {
   AI_PROVIDER?: string;
   ANTHROPIC_API_KEY?: string;
   OPENAI_API_KEY?: string;
+  OPENAI_BASE_URL?: string;
+  GEMINI_API_KEY?: string;
   AI_MODEL?: string;
   MAX_DIFF_LENGTH?: string;
 }
@@ -194,7 +196,8 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
 
   if (provider === "openai") {
     if (!env.OPENAI_API_KEY) throw new Error("缺少 OPENAI_API_KEY");
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
+    const baseUrl = (env.OPENAI_BASE_URL ?? "https://api.openai.com/v1").replace(/\/$/, "");
+    const res = await fetch(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${env.OPENAI_API_KEY}` },
       body: JSON.stringify({
@@ -209,6 +212,26 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
     if (!res.ok) throw new Error(`OpenAI API 失败：${res.status} ${await res.text()}`);
     const data = (await res.json()) as { choices?: Array<{ message?: { content?: string } }> };
     return data.choices?.[0]?.message?.content ?? "";
+  }
+
+  if (provider === "gemini") {
+    if (!env.GEMINI_API_KEY) throw new Error("缺少 GEMINI_API_KEY");
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${env.AI_MODEL ?? "gemini-2.0-flash"}:generateContent`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-goog-api-key": env.GEMINI_API_KEY },
+        body: JSON.stringify({
+          systemInstruction: { parts: [{ text: systemPrompt }] },
+          contents: [{ role: "user", parts: [{ text: diff }] }],
+        }),
+      }
+    );
+    if (!res.ok) throw new Error(`Gemini API 失败：${res.status} ${await res.text()}`);
+    const data = (await res.json()) as {
+      candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }>;
+    };
+    return data.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
   }
 
   if (!env.ANTHROPIC_API_KEY) throw new Error("缺少 ANTHROPIC_API_KEY");

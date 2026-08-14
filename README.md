@@ -45,9 +45,9 @@ cp scripts/heimdall-review.js <目标仓库>/scripts/
 
 在目标仓库 **Settings → Secrets and variables → Actions → New repository secret** 添加：
 
-- `ANTHROPIC_API_KEY`（默认）或 `OPENAI_API_KEY`
+- `ANTHROPIC_API_KEY`（默认）、`OPENAI_API_KEY` 或 `GEMINI_API_KEY`
 
-可选：在 **Variables** 添加 `AI_PROVIDER`（`anthropic` / `openai`）、`AI_MODEL` 覆盖默认模型。
+可选：在 **Variables** 添加 `AI_PROVIDER`（`anthropic` / `openai` / `gemini`）、`AI_MODEL` 覆盖默认模型；本地模型（Ollama / vLLM 等 OpenAI 兼容端点）可设 `OPENAI_BASE_URL`。
 
 ### 3. 验证
 
@@ -122,10 +122,12 @@ docker build -t heimdall . && docker run --env-file .env -p 3000:3000 heimdall
 | `APP_ID` | GitHub App ID | Workers / 自托管 |
 | `WEBHOOK_SECRET` | Webhook secret | Workers / 自托管 |
 | `PRIVATE_KEY` | App 私钥（换行用 `\n`） | Workers / 自托管 |
-| `AI_PROVIDER` | `anthropic` 或 `openai` | 全部 |
+| `AI_PROVIDER` | `anthropic` 或 `openai` 或 `gemini` | 全部 |
 | `ANTHROPIC_API_KEY` | Anthropic API Key | 全部 |
 | `OPENAI_API_KEY` | OpenAI API Key | 全部 |
-| `AI_MODEL` | 覆盖默认模型 | 全部 |
+| `GEMINI_API_KEY` | Gemini API Key（Google AI Studio 获取） | 全部 |
+| `OPENAI_BASE_URL` | OpenAI 兼容端点（本地模型 Ollama / vLLM 可指向自建地址） | 全部 |
+| `AI_MODEL` | 覆盖默认模型（anthropic: claude-sonnet-4-5 / openai: gpt-4o / gemini: gemini-2.0-flash） | 全部 |
 | `MAX_DIFF_LENGTH` | 发送给 AI 的 diff 上限字符数（默认 40000） | 全部 |
 
 ## 配置文件 `.github/heimdall.yml`（可选）
