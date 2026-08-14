@@ -35,7 +35,8 @@ jobs:
           AI_PROVIDER: ${{ vars.AI_PROVIDER || 'anthropic' }}
           AI_MODEL: ${{ vars.AI_MODEL }}
           # 自定义 API 基地址（代理网关 / 本地模型 Ollama / vLLM）
-          AI_BASE_URL: ${{ vars.AI_BASE_URL }}
+          # AI_BASE_URL 走 secret（与 AI_API_KEY 同层配置）；各提供方专属 base url 走 vars
+          AI_BASE_URL: ${{ secrets.AI_BASE_URL }}
           ANTHROPIC_BASE_URL: ${{ vars.ANTHROPIC_BASE_URL }}
           OPENAI_BASE_URL: ${{ vars.OPENAI_BASE_URL }}
           GEMINI_BASE_URL: ${{ vars.GEMINI_BASE_URL }}
