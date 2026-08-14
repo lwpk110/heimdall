@@ -3,9 +3,11 @@ import { loadConfig } from "../config";
 import { generateReview } from "./providers";
 import { parseReview, renderMarkdown, ReviewResult } from "./parse";
 import { SYSTEM_PROMPT } from "./prompt";
+import { filterByMinSeverity, filterFiles, RepoConfig } from "./repo-config";
 
 export async function runReview(context: Context<"pull_request">): Promise<void> {
   const config = loadConfig();
+  const repoConfig = await loadRepoConfig(context);
   const pr = context.pullRequest();
 
   const { data: files } = await context.octokit.pulls.listFiles({
@@ -15,8 +17,9 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     per_page: 100,
   });
 
-  const stats = diffStats(files);
-  const patch = files
+  const reviewable = filterFiles(files, repoConfig);
+  const stats = diffStats(reviewable);
+  const patch = reviewable
     .filter((f) => f.patch)
     .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
     .join("\n\n")
@@ -30,10 +33,14 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     return;
   }
 
+  const systemPrompt = repoConfig.instructions
+    ? `${SYSTEM_PROMPT}\n\n### 团队自定义审查指令\n${repoConfig.instructions}`
+    : SYSTEM_PROMPT;
+
   let rawReport: string;
   try {
     rawReport = await generateReview(config, {
-      systemPrompt: SYSTEM_PROMPT,
+      systemPrompt,
       diff: patch,
     });
   } catch (err) {
@@ -42,14 +49,20 @@ export async function runReview(context: Context<"pull_request">): Promise<void>
     return;
   }
 
-  const result = parseReview(rawReport);
-  if (!result) {
+  const parsed = parseReview(rawReport);
+  if (!parsed) {
     // 结构化解析失败：降级为整体报告，不静默丢失审查内容
     await postSummary(context, renderReport(stats, rawReport));
     return;
   }
 
-  await postInlineReview(context, stats, result);
+  await postInlineReview(context, stats, filterByMinSeverity(parsed, repoConfig.min_severity));
+}
+
+async function loadRepoConfig(context: Context<"pull_request">): Promise<RepoConfig> {
+  const raw = await context.config("heimdall.yml");
+  if (!raw || typeof raw !== "object") return {};
+  return raw as RepoConfig;
 }
 
 interface DiffStats {
