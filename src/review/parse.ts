@@ -21,27 +21,48 @@ const SEVERITY_LABELS: Record<Severity, string> = {
   normal: "🟢 良好实践",
 };
 
-/** 解析 LLM 输出的结构化 JSON；失败返回 null（调用方降级为整体报告，不静默丢失） */
+/** 解析 LLM 输出的结构化 JSON；多策略提取候选，失败返回 null（调用方降级为整体报告，不静默丢失） */
 export function parseReview(raw: string): ReviewResult | null {
-  const text = raw.replace(/```(?:json)?/gi, "").trim();
+  for (const candidate of extractJsonCandidates(raw)) {
+    try {
+      const parsed = JSON.parse(candidate);
+      const result = normalizeResult(parsed);
+      if (result) return result;
+    } catch {
+      // 该候选解析失败，尝试下一个
+    }
+  }
+  return null;
+}
+
+function extractJsonCandidates(raw: string): string[] {
+  const candidates: string[] = [];
+  const text = raw.trim();
+
+  // 1. 去掉 markdown 围栏后整体作为候选
+  candidates.push(text.replace(/```(?:json)?/gi, "").trim());
+
+  // 2. 提取 ```json ... ``` 代码块内的完整内容
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let m: RegExpExecArray | null;
+  while ((m = fenceRe.exec(text))) candidates.push(m[1].trim());
+
+  // 3. 从第一个 { 到最后一个 } 截取（容忍前后杂讯）
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
+  if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
 
-  let data: unknown;
-  try {
-    data = JSON.parse(text.slice(start, end + 1));
-  } catch {
-    return null;
-  }
+  return candidates;
+}
 
+function normalizeResult(data: unknown): ReviewResult | null {
+  if (typeof data !== "object" || data === null) return null;
   const obj = data as { summary?: unknown; issues?: unknown };
   const issues = Array.isArray(obj.issues)
     ? obj.issues
         .map(normalizeIssue)
         .filter((i): i is ReviewIssue => i !== null)
     : [];
-
   return {
     summary: typeof obj.summary === "string" ? obj.summary : "",
     issues,

@@ -39,25 +39,15 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——来自漫威宇�
 5. 可读性、可维护性与一致性
 
 要求：
-- 只输出一个 JSON 对象，不要输出任何其他文字，不要用代码块包裹
+- 只输出一个 JSON 对象，不要输出任何其他文字、不要使用 markdown、不要用代码块包裹，直接输出原始 JSON
 - 严格遵循以下结构（issues 中每一项的 file / line 必须对应 diff 中实际出现的位置）：
 
-{
-  "summary": "一句话说明本次 PR 改了什么、影响面、需要关注的点",
-  "issues": [
-    {
-      "severity": "critical",
-      "file": "src/auth.ts",
-      "line": 45,
-      "comment": "JWT 未校验 exp，存在越权风险"
-    }
-  ]
-}
+{"summary": "一句话说明本次 PR 改了什么、影响面、需要关注的点", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "JWT 未校验 exp，存在越权风险"}]}
 
-- severity 取值：critical（bug / 安全风险 / 明显错误）、important（性能 / 健壮性 / 可维护性）、normal（可读性 / 风格）
-- line 必须是该文件在 diff 中【新增行】（+ 行）的真实行号；无法确定确切行号时设为 0（该条只进入报告，不生成行内评论）
+- severity 取值只能是：critical（bug / 安全风险 / 明显错误）、important（性能 / 健壮性 / 可维护性）、normal（可读性 / 风格）
+- line 必须是该文件在 diff 中【新增行】（+ 行）的真实行号；无法确定确切行号时填 0（该条只进入报告，不生成行内评论）
 - comment 简洁、具体、可执行；不要客套
-- issues 可以为空数组；不要为了凑数而挑刺`;
+- issues 可以为空数组 []；如果 diff 没有明显问题，summary 正常填写，issues 返回 []，不要为了凑数而挑刺`;
 
 const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
 // pull_request 事件与 issue_comment（PR 评论 @heimdall review）事件都支持
@@ -421,20 +411,34 @@ async function setCriticalStatus(sha, criticalCount) {
 }
 
 function parseReview(raw) {
-  const text = String(raw).replace(/```(?:json)?/gi, "").trim();
+  const candidates = extractJsonCandidates(String(raw));
+  for (const c of candidates) {
+    try {
+      const data = JSON.parse(c);
+      const issues = Array.isArray(data.issues)
+        ? data.issues.map(normalizeIssue).filter(Boolean)
+        : [];
+      if (typeof data === "object" && data !== null) {
+        return { summary: typeof data.summary === "string" ? data.summary : "", issues };
+      }
+    } catch (err) {
+      // 该候选解析失败，尝试下一个
+    }
+  }
+  return null;
+}
+
+function extractJsonCandidates(raw) {
+  const candidates = [];
+  const text = raw.trim();
+  candidates.push(text.replace(/```(?:json)?/gi, "").trim());
+  const fenceRe = /```(?:json)?\s*([\s\S]*?)```/gi;
+  let m;
+  while ((m = fenceRe.exec(text))) candidates.push(m[1].trim());
   const start = text.indexOf("{");
   const end = text.lastIndexOf("}");
-  if (start < 0 || end <= start) return null;
-  let data;
-  try {
-    data = JSON.parse(text.slice(start, end + 1));
-  } catch (err) {
-    return null;
-  }
-  const issues = Array.isArray(data.issues)
-    ? data.issues.map(normalizeIssue).filter(Boolean)
-    : [];
-  return { summary: typeof data.summary === "string" ? data.summary : "", issues };
+  if (start >= 0 && end > start) candidates.push(text.slice(start, end + 1));
+  return candidates;
 }
 
 const SEVERITIES = ["critical", "important", "normal"];
