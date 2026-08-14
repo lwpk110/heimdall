@@ -6,13 +6,15 @@
 
 ## 特性
 
-- **双部署模式**：GitHub Actions（单仓库自用、零服务器）或 Cloudflare Workers（无服务器、可作为 GitHub App 分发）
-- 自动监听 PR 的 `opened` / `reopened` / `synchronize` 事件
-- 调用 Claude（Anthropic）或 GPT（OpenAI）审查 diff
+- **三形态部署**：GitHub Actions（单仓库自用、零服务器）、Cloudflare Workers（无服务器、可作为 GitHub App 分发）、Probot / Docker 自托管（代码不出内网）
+- 自动监听 PR 的 `opened` / `reopened` / `synchronize` 事件；在 PR 评论发 `@heimdall review` 可手动触发重新审查
+- 调用 Claude / GPT / Gemini / 本地模型审查 diff（支持统一 `AI_API_KEY` + `AI_BASE_URL` 走代理网关）
 - 以 PR Review 形式发布报告：变更摘要 + 严重度分级（🔴 严重 / 🟡 建议 / 🟢 良好）
 - 行内评论定位到具体文件与代码行，行号映射失败时自动降级为整体报告，不丢失审查内容
-- 跳过草稿 PR 与机器人发起的 PR，避免干扰
-- 支持模型与 diff 长度上限配置，防止超大 PR 超出上下文
+- `.github/heimdall.yml` 配置化：include/exclude 文件过滤、min_severity 阈值、团队自定义审查指令、白名单、block_on_critical
+- 同 commit 去重，避免重复审查刷屏
+- `block_on_critical`：存在未解决严重问题时，以 `heimdall/critical` 状态检查阻断合并
+- 跳过草稿 PR 与机器人发起的 PR；核心逻辑带单元测试（node:test）
 
 ## 两种模式怎么选
 
@@ -45,9 +47,9 @@ cp scripts/heimdall-review.js <目标仓库>/scripts/
 
 在目标仓库 **Settings → Secrets and variables → Actions → New repository secret** 添加：
 
-- `ANTHROPIC_API_KEY`（默认）、`OPENAI_API_KEY` 或 `GEMINI_API_KEY`
+- 统一 `AI_API_KEY`（走代理网关时一个 key 即可），或 `ANTHROPIC_API_KEY`（默认）、`OPENAI_API_KEY`、`GEMINI_API_KEY`
 
-可选：在 **Variables** 添加 `AI_PROVIDER`（`anthropic` / `openai` / `gemini`）、`AI_MODEL` 覆盖默认模型；本地模型（Ollama / vLLM 等 OpenAI 兼容端点）可设 `OPENAI_BASE_URL`。
+可选：在 **Variables** 添加 `AI_PROVIDER`（`anthropic` / `openai` / `gemini`）、`AI_MODEL` 覆盖默认模型；代理网关 / 本地模型（Ollama / vLLM）可设统一 `AI_BASE_URL` 或各提供方 `*_BASE_URL`。
 
 ### 3. 验证
 
@@ -78,8 +80,8 @@ https://github.com/settings/apps/new?url=https://raw.githubusercontent.com/<你�
    - **GitHub App name**：`heimdall`（需全局唯一，重名可加后缀）
    - **Webhook URL**：部署 Worker 后填 `https://heimdall.<你的子域>.workers.dev/api/github/webhooks`
    - **Webhook secret**：生成随机串并保存
-   - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Metadata` → Read-only
-   - **Subscribe to events**：`pull_request`
+   - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write（用于响应 `@heimdall review` 评论）；`Metadata` → Read-only
+   - **Subscribe to events**：`pull_request`、`issue_comment`
 3. 记录 **App ID**，生成并下载 **Private key**（.pem）
 4. 左侧 **Install App**，安装到你的仓库
 
@@ -96,11 +98,12 @@ npm run worker:dev          # 本地调试
 npx wrangler secret put GITHUB_APP_ID
 npx wrangler secret put GITHUB_PRIVATE_KEY
 npx wrangler secret put WEBHOOK_SECRET
-npx wrangler secret put ANTHROPIC_API_KEY
+npx wrangler secret put AI_API_KEY        # 统一 key；或分别 ANTHROPIC_API_KEY / OPENAI_API_KEY / GEMINI_API_KEY
 npm run worker:deploy
 ```
 
 > `GITHUB_PRIVATE_KEY` 换行可写成 `\n`（代码会自动还原），或在 Cloudflare Dashboard 直接粘贴原值。
+> `AI_BASE_URL` 属于非敏感配置，可放进 `worker/wrangler.toml` 的 `[vars]` 或作为普通 secret 写入。
 
 部署后把 GitHub App 的 **Webhook URL** 改成 Worker 地址，即可生效。
 
@@ -127,7 +130,7 @@ npm run worker:deploy
 不想用 Cloudflare、希望代码完全不出内网时，可用仓库内提供的传统 Probot 服务：
 
 ```bash
-cp .env.example .env        # 填写 APP_ID / WEBHOOK_SECRET / PRIVATE_KEY / ANTHROPIC_API_KEY
+cp .env.example .env        # 填写 APP_ID / WEBHOOK_SECRET / PRIVATE_KEY / AI_API_KEY（或 ANTHROPIC_API_KEY）
 npm install
 npm run build
 npm start                   # 本地运行，配合 smee.io 调试 webhook
@@ -186,41 +189,77 @@ block_on_critical: true
 
 ## 架构
 
-三种形态共享同一套审查内核：
+三种形态共享同一套审查内核，抽象为「触发 → 配置 → 数据获取 → 模型调用 → 结果解析 → 回写」管线，任一环节可独立替换：
 
 ```
-PR 事件（Actions 调度 / GitHub webhook）
+触发（PR 事件 / @heimdall review 评论）
    │
    ▼
-读取 PR diff (GitHub API)
+读取配置（.github/heimdall.yml）＋ 读取 PR diff（GitHub API，含 include/exclude 过滤）
    │
    ▼
-调用 LLM（Claude / GPT）——海姆达尔人设 prompt
+调用 LLM（anthropic / openai / gemini / 本地模型，可自定义 base_url）
    │
    ▼
-以 Review 形式回写 PR
+解析结构化结果（JSON → 严重度 / 文件 / 行号）
+   │
+   ▼
+以 Review 回写 PR（行内评论 + 整体报告；行号映射失败自动降级）
+   │
+   ▼
+（可选）heimdall/critical 状态检查 → 阻断合并
+```
+
+审查报告结构（由 `src/review/parse.ts` 渲染）：
+
+```markdown
+## 海姆达尔 · 代码审查报告
+
+**变更摘要**：本次 PR 共改动 N 个文件，+X / -Y 行。
+
+**变更概述**：一句话说明本次 PR 改了什么、影响面……
+
+### 🔴 严重问题
+- `src/auth.ts:45`：JWT 未校验 exp，存在越权风险
+
+### 🟡 建议改进
+- `src/api.ts:88`：循环内重复查询数据库，建议批量查询
+
+### 🟢 良好实践
+- `src/utils.ts:12`：使用不可变数据结构，赞
 ```
 
 ## 目录结构
 
 ```
 heimdall/
-├── app.yml                    # GitHub App Manifest
-├── .github/workflows/         # 模式 A：GitHub Actions workflow（复制到目标仓库）
-├── scripts/heimdall-review.js # 模式 A：审查脚本（复制到目标仓库）
-├── worker/                    # 模式 B：Cloudflare Worker
+├── app.yml                     # GitHub App Manifest（pull_request / issue_comment 事件）
+├── .github/
+│   ├── workflows/
+│   │   ├── heimdall-review.yml # 模式 A：审查 workflow（复制到目标仓库）
+│   │   ├── ci.yml              # 本仓库 CI：构建 + 单元测试
+│   │   └── deploy.yml          # 模式 B：自动发布 Worker 到 Cloudflare
+│   ├── ISSUE_TEMPLATE/         # Issue 模板（bug / feature）
+│   └── pull_request_template.md
+├── scripts/heimdall-review.js  # 模式 A：审查脚本（复制到目标仓库，零依赖）
+├── worker/                     # 模式 B：Cloudflare Worker
 │   ├── index.ts
 │   └── wrangler.toml
-├── Dockerfile                 # 可选：自托管服务
-├── src/                       # 共享审查内核（Probot 版本）
-│   ├── index.ts
-│   ├── app.ts
-│   ├── config.ts
+├── src/                        # 共享审查内核
+│   ├── index.ts                # 自托管入口（createNodeMiddleware 启动 webhook 服务）
+│   ├── app.ts                  # Probot 事件订阅（自动审查 + @heimdall review）
+│   ├── config.ts               # 环境配置解析（AI 提供方 / base_url / 模型）
 │   └── review/
-│       ├── index.ts
-│       ├── prompt.ts          # 海姆达尔人设 prompt（唯一来源）
-│       └── providers.ts       # AI 提供方（Anthropic / OpenAI）
-└── PRD.md                     # 产品需求文档
+│       ├── index.ts            # 审查主流程（触发 → 过滤 → 审查 → 回写）
+│       ├── prompt.ts           # 海姆达尔人设 prompt（唯一来源）
+│       ├── providers.ts        # AI 提供方（anthropic / openai / gemini + 本地模型）
+│       ├── parse.ts            # 结构化结果解析与报告渲染（行内评论 / 降级）
+│       └── repo-config.ts      # heimdall.yml 解析 / glob 过滤 / 严重度阈值 / 白名单
+├── test/                       # 单元测试（node:test，针对 lib/ 产物）
+├── Dockerfile                  # 可选：自托管服务
+├── CONTRIBUTING.md             # 贡献指南
+├── PRD.md                      # 产品需求文档
+└── README.md
 ```
 
 ## 常见问题
@@ -239,11 +278,23 @@ heimdall/
 
 ## 路线图
 
-- [x] 行内评论（定位到具体代码行）
-- [x] 支持更多 AI 提供方（Gemini、本地模型）→ 进行中
+已交付（M1–M4）：
+
+- [x] 自动整体审查 + 海姆达尔人设（M1）
+- [x] 变更摘要 + 严重度分级（🔴/🟡/🟢）（M2）
+- [x] 行内评论，定位到具体文件与代码行（M2）
+- [x] `.github/heimdall.yml` 配置化：include/exclude / min_severity / instructions（M3）
+- [x] 按需审查 `@heimdall review` + `manual_reviewers` 白名单（M3/M4）
+- [x] 更多 AI 提供方：Gemini、本地模型、统一 `AI_API_KEY` / `AI_BASE_URL`（M3）
+- [x] 同 commit 去重（M4）
+- [x] `block_on_critical` 阻断合并（M4）
+- [x] 单元测试 + CI 集成
+- [x] Cloudflare Worker 自动发布（GitHub Actions）
+
+规划中：
+
+- [ ] 增量审查（只审查新增 / 变更部分）
 - [ ] 基于文件变更规模的审查分级
-- [x] 审查结果去重（同 commit 不重复审查；增量审查规划中）
-- [x] `.github/heimdall.yml` 配置化（见 PRD）
 
 ## License
 

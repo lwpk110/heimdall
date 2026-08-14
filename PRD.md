@@ -318,14 +318,14 @@ npm run worker:deploy     # 部署到 Cloudflare
 
 ## 9. 里程碑
 
-| 里程碑 | 版本 | 范围 | 目标 |
-| --- | --- | --- | --- |
-| M1 | v0.1 | 自动整体审查 + 海姆达尔人设 prompt | 让机器人"跑起来"并给出像样报告 |
-| M2 | v0.2 | 行内评论 + 严重度分级 + 变更摘要 | 对齐 Copilot 主要体验 |
-| M3 | v0.3 | `heimdall.yml` 配置化 + 语言/文件过滤 + 按需触发 | 可定制、可接入真实团队流程 |
-| M4 | v1.0 | 阻止合并 + 白名单 + 审查缓存去重 | 达到可正式使用的产品完成度 |
+| 里程碑 | 版本 | 范围 | 目标 | 状态 |
+| --- | --- | --- | --- | --- |
+| M1 | v0.1 | 自动整体审查 + 海姆达尔人设 prompt | 让机器人"跑起来"并给出像样报告 | ✅ 已交付 |
+| M2 | v0.2 | 行内评论 + 严重度分级 + 变更摘要 | 对齐 Copilot 主要体验 | ✅ 已交付 |
+| M3 | v0.3 | `heimdall.yml` 配置化 + 语言/文件过滤 + 按需触发 | 可定制、可接入真实团队流程 | ✅ 已交付 |
+| M4 | v1.0 | 阻止合并 + 白名单 + 审查缓存去重 | 达到可正式使用的产品完成度 | ✅ 已交付 |
 
-> 当前代码仓库脚手架已完成 v0.1（M1）的基础工程：双部署模式（GitHub Actions workflow + Cloudflare Worker）、共享审查内核（Claude / GPT 双后端）、事件订阅、整体 Review 回写，以及自托管 Probot 方案。
+> 当前状态（2026-08）：M1–M4 全部交付。共享审查内核已具备：变更摘要与严重度分级、行内评论（结构化 JSON 解析 + 失败降级）、`heimdall.yml` 配置化（include/exclude / min_severity / instructions / manual_reviewers / block_on_critical）、按需审查 `@heimdall review`、同 commit 去重、`heimdall/critical` 状态检查阻断合并；AI 提供方支持 Claude / GPT / Gemini / 本地模型，支持统一 `AI_API_KEY` + `AI_BASE_URL` 走代理网关；三形态（GitHub Actions / Cloudflare Worker / Probot 自托管）共享同一内核，核心逻辑带单元测试，Worker 支持 GitHub Actions 自动发布。
 
 ---
 
