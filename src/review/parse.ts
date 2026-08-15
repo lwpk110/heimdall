@@ -9,12 +9,16 @@ export interface ReviewIssue {
   comment: string;
   /** 具体修复建议（可选，可含改法/代码思路） */
   suggestion?: string;
+  /** 原生一键替换代码块（可选，无 diff 前缀，供 GitHub 1-Click Suggestion 渲染） */
+  suggestionCode?: string;
   /** 具体代码修改建议（可选，diff 格式，- 删 / + 增） */
   diff?: string;
 }
 
 export interface ReviewResult {
   summary: string;
+  focusAreas?: string[];
+  verificationSteps?: string[];
   issues: ReviewIssue[];
 }
 
@@ -92,7 +96,14 @@ function extractJsonCandidates(raw: string): string[] {
 
 function normalizeResult(data: unknown): ReviewResult | null {
   if (typeof data !== "object" || data === null) return null;
-  const obj = data as { summary?: unknown; issues?: unknown };
+  const obj = data as {
+    summary?: unknown;
+    focus_areas?: unknown;
+    focusAreas?: unknown;
+    verification_steps?: unknown;
+    verificationSteps?: unknown;
+    issues?: unknown;
+  };
   const issues = Array.isArray(obj.issues)
     ? dedupeIssues(
         obj.issues
@@ -100,10 +111,20 @@ function normalizeResult(data: unknown): ReviewResult | null {
           .filter((i): i is ReviewIssue => i !== null)
       )
     : [];
-  return {
+
+  const rawFocus = Array.isArray(obj.focus_areas) ? obj.focus_areas : Array.isArray(obj.focusAreas) ? obj.focusAreas : [];
+  const focusAreas = rawFocus.map(String).filter(Boolean);
+
+  const rawSteps = Array.isArray(obj.verification_steps) ? obj.verification_steps : Array.isArray(obj.verificationSteps) ? obj.verificationSteps : [];
+  const verificationSteps = rawSteps.map(String).filter(Boolean);
+
+  const result: ReviewResult = {
     summary: typeof obj.summary === "string" ? obj.summary : "",
     issues,
   };
+  if (focusAreas.length > 0) result.focusAreas = focusAreas;
+  if (verificationSteps.length > 0) result.verificationSteps = verificationSteps;
+  return result;
 }
 
 /** 去重：同一 文件+行号+严重度 的重复问题只保留一条（LLM 偶发重复输出） */
@@ -129,6 +150,11 @@ function normalizeIssue(raw: unknown): ReviewIssue | null {
   const comment = typeof item.comment === "string" ? item.comment.trim() : "";
   const line = typeof item.line === "number" ? Math.floor(item.line) : 0;
   const suggestion = typeof item.suggestion === "string" ? item.suggestion.trim() : "";
+  const suggestionCode = typeof item.suggestion_code === "string"
+    ? item.suggestion_code.trim()
+    : typeof item.suggestionCode === "string"
+    ? item.suggestionCode.trim()
+    : "";
   const diff = typeof item.diff === "string" ? item.diff.trim() : "";
   if (!file || !comment) return null;
   const issue: ReviewIssue = {
@@ -138,31 +164,47 @@ function normalizeIssue(raw: unknown): ReviewIssue | null {
     comment,
   };
   if (suggestion) issue.suggestion = suggestion;
+  if (suggestionCode) issue.suggestionCode = suggestionCode;
   if (diff) issue.diff = diff;
   return issue;
 }
 
 /** 把结构化结果渲染为 markdown 报告（不含头部统计行，含折叠块） */
 export function renderMarkdown(result: ReviewResult): string {
-  const { summary, issues } = result;
+  const { summary, focusAreas, verificationSteps, issues } = result;
   const lines: string[] = [];
-  if (summary) lines.push(`**变更概述**：${summary}`, "");
-  if (issues.length > 0) {
-    const critical = issues.filter((i) => i.severity === "critical").length;
-    const important = issues.filter((i) => i.severity === "important").length;
-    const normal = issues.filter((i) => i.severity === "normal").length;
-    lines.push(`🔍 **发现 ${issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
+
+  if (summary) {
+    lines.push(`### 📖 变更概述`, summary, "");
   }
-  lines.push("<details>", "<summary>🤖 审查评论</summary>", "");
+
+  if (focusAreas && focusAreas.length > 0) {
+    lines.push(`#### 🎯 重点复核领域`);
+    for (const area of focusAreas) {
+      lines.push(`- ${area}`);
+    }
+    lines.push("");
+  }
+
+  if (verificationSteps && verificationSteps.length > 0) {
+    lines.push(`### 🧪 建议回归测试清单`);
+    for (const step of verificationSteps) {
+      lines.push(`- [ ] ${step}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("<details>", "<summary>🔍 审查评论与问题清单</summary>", "");
 
   // line>0 的问题用表格汇总（详情在行内评论）；line=0 的问题列表展示完整详情
   const inlineIssues = issues.filter((i) => i.line > 0);
   const orphanIssues = issues.filter((i) => i.line === 0);
   if (inlineIssues.length > 0) {
-    lines.push("| 严重度 | 位置 | 问题 |", "| --- | --- | --- |");
+    lines.push("| 严重度 | 位置 | 问题 | 修复支持 |", "| :---: | --- | --- | :---: |");
     for (const i of inlineIssues) {
       const loc = `\`${i.file}:${i.line}\``;
-      lines.push(`| ${SEVERITY_ICONS[i.severity]} | ${loc} | ${i.comment} |`);
+      const fixStatus = i.suggestionCode ? "⚡ 1-Click Suggestion" : i.diff ? "💡 附 Diff 代码" : "📝 说明";
+      lines.push(`| ${SEVERITY_ICONS[i.severity]} | ${loc} | ${i.comment} | ${fixStatus} |`);
     }
     lines.push("");
   }
@@ -173,7 +215,11 @@ export function renderMarkdown(result: ReviewResult): string {
     for (const i of group) {
       lines.push(`- **\`${i.file}\`**：${i.comment}`);
       if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
-      if (i.diff) lines.push("", "  ```diff", ...indentDiff(i.diff), "  ```");
+      if (i.suggestionCode) {
+        lines.push("", "  ```suggestion", ...indentDiff(i.suggestionCode), "  ```");
+      } else if (i.diff) {
+        lines.push("", "  ```diff", ...indentDiff(i.diff), "  ```");
+      }
     }
     lines.push("");
   }
@@ -231,4 +277,56 @@ export function validateIssueLines(
     if (i.line > 0 && validLines.get(i.file)?.has(i.line)) return i;
     return { ...i, line: 0 };
   });
+}
+
+/**
+ * 将待审查文件组合为 diff 文本，按文件与行边界做安全截断，
+ * 避免字符级 slice 导致 mid-line 或未闭合代码块语法坏死。
+ */
+export function formatSafeDiff(
+  files: Array<{ filename: string; patch?: string }>,
+  maxDiffLength: number
+): string {
+  const blocks: string[] = [];
+  let currentLen = 0;
+  let truncated = false;
+
+  for (const f of files) {
+    if (!f.patch) continue;
+    const header = `### ${f.filename}\n\`\`\`diff\n`;
+    const footer = `\n\`\`\``;
+
+    if (currentLen + header.length + footer.length > maxDiffLength) {
+      truncated = true;
+      break;
+    }
+
+    let fileContent = header;
+    currentLen += header.length;
+    const patchLines = f.patch.split("\n");
+
+    let linesAdded = 0;
+    for (const line of patchLines) {
+      const lineLen = line.length + 1;
+      if (currentLen + lineLen + footer.length > maxDiffLength) {
+        truncated = true;
+        break;
+      }
+      fileContent += (linesAdded > 0 ? "\n" : "") + line;
+      currentLen += lineLen;
+      linesAdded++;
+    }
+
+    fileContent += footer;
+    currentLen += footer.length;
+    blocks.push(fileContent);
+
+    if (truncated) break;
+  }
+
+  let result = blocks.join("\n\n");
+  if (truncated && result.trim()) {
+    result += "\n\n[⚠️ Diff 规模过大，已在文件/行边界处自动截断以适应 LLM 上下文]";
+  }
+  return result;
 }

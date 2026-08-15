@@ -95,3 +95,17 @@ test("filterByMinSeverity：按阈值过滤", () => {
   assert.equal(filterByMinSeverity(result, "critical").issues.length, 1);
   assert.equal(filterByMinSeverity(result, undefined).issues.length, 3);
 });
+
+test("parseHeimdallConfig：行尾注释剥离与 @ 前缀清洗", () => {
+  const yaml = `
+block_on_critical: true # 阻断合并
+min_severity: important # 最小严重度
+manual_reviewers:
+  - "@octocat"
+  - "@steven"
+`;
+  const cfg = parseHeimdallConfig(yaml);
+  assert.equal(cfg.block_on_critical, true);
+  assert.equal(cfg.min_severity, "important");
+  assert.deepEqual(cfg.manual_reviewers, ["octocat", "steven"]);
+});

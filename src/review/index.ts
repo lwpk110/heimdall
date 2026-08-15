@@ -1,7 +1,7 @@
 import { Context } from "probot";
 import { loadConfig } from "../config";
 import { generateReview } from "./providers";
-import { parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "./parse";
+import { formatSafeDiff, parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "./parse";
 import { SYSTEM_PROMPT } from "./prompt";
 import { filterByMinSeverity, filterFiles, loadRepoConfigFromOctokit, RepoConfig } from "./repo-config";
 
@@ -27,7 +27,8 @@ export async function runReview(target: ReviewTarget): Promise<void> {
   const config = loadConfig();
   const repoConfig = await loadRepoConfigFromOctokit(octokit, owner, repo);
 
-  const { data: files } = await octokit.pulls.listFiles({
+  // 自动分页读取完整文件列表，避免 PR > 100 文件时静默遗漏
+  const files = await octokit.paginate(octokit.pulls.listFiles, {
     owner,
     repo,
     pull_number: pullNumber,
@@ -36,11 +37,7 @@ export async function runReview(target: ReviewTarget): Promise<void> {
 
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
-  const patch = reviewable
-    .filter((f) => f.patch)
-    .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
-    .join("\n\n")
-    .slice(0, config.maxDiffLength);
+  const patch = formatSafeDiff(reviewable, config.maxDiffLength);
 
   if (!patch.trim()) {
     await postSummary(target, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
@@ -77,6 +74,22 @@ export async function runReview(target: ReviewTarget): Promise<void> {
 
   // 校验行号：不在 diff 新增行集合的 line 归 0，避免行内评论 422 / 错位
   await postInlineReview(target, stats, { ...filtered, issues: validateIssueLines(filtered.issues, reviewable) });
+
+  // 标记该 commit 已完成海姆达尔审查（供跨触发与跨端去重）
+  if (headSha) {
+    try {
+      await octokit.repos.createCommitStatus({
+        owner,
+        repo,
+        sha: headSha,
+        state: "success",
+        context: "heimdall/reviewed",
+        description: "已完成海姆达尔代码审查",
+      });
+    } catch {
+      // 忽略 status 权限不具备等失败，不影响主流程
+    }
+  }
 }
 
 export function prParams(target: ReviewTarget): {
@@ -136,24 +149,43 @@ function diffStats(files: Array<{ filename?: string; additions?: number; deletio
   };
 }
 
-function renderReport(stats: DiffStats, content: string): string {
+function renderReport(stats: DiffStats, content: string, result?: ReviewResult): string {
+  const issues = result?.issues ?? [];
+  const critical = issues.filter((i) => i.severity === "critical").length;
+  const important = issues.filter((i) => i.severity === "important").length;
+  const normal = issues.filter((i) => i.severity === "normal").length;
+
+  const statusBadge = critical > 0 ? "🔴 **阻断合并**" : important > 0 ? "🟡 **需关注**" : "🟢 **可以通过**";
+  const issueCounts = `🔴 **${critical} Critical** · 🟡 **${important} Important** · 🟢 **${normal} Normal**`;
+  const scale = `🟢 +${stats.additions} / 🔴 -${stats.deletions} (${stats.files} 文件)`;
+
   const table =
     stats.fileDetails.length > 0
-      ? ["", "| 文件 | 变更 |", "| --- | --- |"]
+      ? ["\n### 📝 文件变更明细", "", "| 文件 | 变更规模 |", "| --- | :---: |"]
           .concat(stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`))
           .join("\n")
       : "";
+
   const info = `
 <details>
-<summary>ℹ️ 审查信息</summary>
+<summary>ℹ️ 审查环境与元数据</summary>
 
-- **审查文件**：${stats.files} 个
+- **审查文件**：${stats.files} 个文件
 - **变更规模**：🟢 +${stats.additions} / 🔴 -${stats.deletions} 行
+- **守护者人设**：Heimdall Bifrost Guard v0.1
 
 </details>`;
-  return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，🟢 +${stats.additions} / 🔴 -${stats.deletions} 行。${table}
+  return `## 🛡️ 海姆达尔 (Heimdall) · 代码审查报告
+> *"看穿每一行代码，守护合并之门"*
+
+| 审查状态 | 风险分布 | 变更规模 |
+| :---: | :---: | :---: |
+| ${statusBadge} | ${issueCounts} | ${scale} |
+
+${table}
+
+---
 
 ${content}
 
@@ -161,7 +193,7 @@ ${info}`;
 }
 
 async function postInlineReview(target: ReviewTarget, stats: DiffStats, result: ReviewResult): Promise<void> {
-  const body = renderReport(stats, renderMarkdown(result));
+  const body = renderReport(stats, renderMarkdown(result), result);
 
   const comments = result.issues
     .filter((i) => i.line > 0)
@@ -172,7 +204,11 @@ async function postInlineReview(target: ReviewTarget, stats: DiffStats, result: 
       body: [
         `${severityLabel(i.severity)} **${i.comment}**`,
         i.suggestion ? `\n\n**修复建议**：${i.suggestion}` : "",
-        i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
+        i.suggestionCode
+          ? `\n\n\`\`\`suggestion\n${i.suggestionCode}\n\`\`\``
+          : i.diff
+          ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\``
+          : "",
       ].join(""),
     }));
 

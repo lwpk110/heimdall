@@ -45,6 +45,16 @@ function resolveBaseUrl(config: AppConfig, provider: AiProvider, fallback: strin
   return (process.env[envKey[provider]] ?? fallback).replace(/\/+$/, "");
 }
 
+async function fetchTimeout(url: string, options: RequestInit, ms = 60000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callAnthropic(
   config: AppConfig,
   req: ReviewRequest
@@ -52,7 +62,7 @@ async function callAnthropic(
   const apiKey = resolveApiKey(config, "anthropic");
   if (!apiKey) throw new Error(missingKeyError("anthropic"));
 
-  const res = await fetch(
+  const res = await fetchTimeout(
     `${resolveBaseUrl(config, "anthropic", "https://api.anthropic.com")}/v1/messages`,
     {
       method: "POST",
@@ -75,7 +85,6 @@ async function callAnthropic(
     throw new Error(`Anthropic API 调用失败 (${res.status}): ${await res.text()}`);
   }
   const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
-  // content 可能含 thinking 块，需取 type 为 text 的块
   return data.content?.find((block) => block.type === "text")?.text ?? "";
 }
 
@@ -86,7 +95,7 @@ async function callOpenAI(
   const apiKey = resolveApiKey(config, "openai");
   if (!apiKey) throw new Error(missingKeyError("openai"));
 
-  const res = await fetch(
+  const res = await fetchTimeout(
     `${resolveBaseUrl(config, "openai", "https://api.openai.com/v1")}/chat/completions`,
     {
       method: "POST",
@@ -121,7 +130,7 @@ async function callGemini(
   const apiKey = resolveApiKey(config, "gemini");
   if (!apiKey) throw new Error(missingKeyError("gemini"));
 
-  const res = await fetch(
+  const res = await fetchTimeout(
     `${resolveBaseUrl(config, "gemini", "https://generativelanguage.googleapis.com")}/v1beta/models/${config.model}:generateContent`,
     {
       method: "POST",

@@ -2,7 +2,7 @@
 "use strict";
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const { parseReview, renderMarkdown } = require("../lib/review/parse.js");
+const { parseReview, renderMarkdown, formatSafeDiff } = require("../lib/review/parse.js");
 
 test("parseReview：标准 JSON 解析", () => {
   const raw = JSON.stringify({
@@ -120,4 +120,46 @@ test("parseReview：diff 字段解析与渲染", () => {
 test("renderMarkdown：空 issue 输出提示", () => {
   const md = renderMarkdown({ summary: "", issues: [] });
   assert.ok(md.includes("未发现明显问题"));
+});
+
+test("parseReview：focus_areas, verification_steps 与 suggestion_code 解析渲染", () => {
+  const raw = JSON.stringify({
+    summary: "重构登录体系",
+    focus_areas: ["🔒 安全性：JWT 机制", "⚙️ 核心逻辑"],
+    verification_steps: ["运行单元测试", "验证 Token 过期"],
+    issues: [
+      {
+        severity: "critical",
+        file: "src/auth.ts",
+        line: 10,
+        comment: "缺失过期限制",
+        suggestion_code: "const t = jwt.sign(payload, key, { expiresIn: '1h' });",
+      },
+    ],
+  });
+  const result = parseReview(raw);
+  assert.ok(result);
+  assert.equal(result.focusAreas.length, 2);
+  assert.equal(result.verificationSteps.length, 2);
+  assert.equal(result.issues[0].suggestionCode, "const t = jwt.sign(payload, key, { expiresIn: '1h' });");
+
+  const md = renderMarkdown(result);
+  assert.ok(md.includes("🎯 重点复核领域"));
+  assert.ok(md.includes("🔒 安全性：JWT 机制"));
+  assert.ok(md.includes("🧪 建议回归测试清单"));
+  assert.ok(md.includes("[ ] 验证 Token 过期"));
+  assert.ok(md.includes("⚡ 1-Click Suggestion"));
+});
+
+test("formatSafeDiff：按文件与行边界安全截断与提示", () => {
+  const files = [
+    { filename: "a.ts", patch: "+ const line1 = 1;\n+ const line2 = 2;\n+ const line3 = 3;" },
+    { filename: "b.ts", patch: "+ const b1 = 1;" },
+  ];
+  // 限制长度较小时，不破坏 ```diff 代码块结构，且添加截断提示
+  const res = formatSafeDiff(files, 80);
+  assert.ok(res.includes("### a.ts"));
+  assert.ok(res.includes("```diff"));
+  assert.ok(res.includes("```"));
+  assert.ok(res.includes("⚠️ Diff 规模过大"));
 });
