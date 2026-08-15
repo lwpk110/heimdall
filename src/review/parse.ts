@@ -102,6 +102,12 @@ export function renderMarkdown(result: ReviewResult): string {
   const { summary, issues } = result;
   const lines: string[] = [];
   if (summary) lines.push(`**变更概述**：${summary}`, "");
+  if (issues.length > 0) {
+    const critical = issues.filter((i) => i.severity === "critical").length;
+    const important = issues.filter((i) => i.severity === "important").length;
+    const normal = issues.filter((i) => i.severity === "normal").length;
+    lines.push(`🔍 **发现 ${issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
+  }
   for (const sev of SEVERITIES) {
     const group = issues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
