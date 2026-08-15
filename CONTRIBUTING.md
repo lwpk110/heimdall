@@ -1,59 +1,58 @@
-# 参与开发（Contributing）
+# Contributing
 
-欢迎为海姆达尔贡献代码。本文件定义了协作规范，请在提交 PR 前阅读。
+Welcome! Thanks for helping improve Heimdall. Please read this before opening a PR.
 
-## 开发环境
+## Dev Setup
 
 ```bash
 git clone https://github.com/lwpk110/heimdall.git
 cd heimdall
 npm install
-npm run build     # TypeScript 严格模式编译，应无报错
+npm test                 # build + unit tests
 ```
 
-## 分支策略
+## Branch Strategy
 
-- `main` 为受保护分支，禁止直接推送，所有变更必须走 Pull Request。
-- 分支命名建议：
+- `main` is protected — no direct pushes; all changes go through PRs.
+- Suggested prefixes:
 
-| 类型 | 前缀 | 示例 |
+| Type | Prefix | Example |
 | --- | --- | --- |
-| 新功能 | `feat/` | `feat/inline-comments` |
-| Bug 修复 | `fix/` | `fix/build-typescript` |
-| 重构 | `refactor/` | `refactor/review-pipeline` |
-| 文档 / 流程 | `chore/` | `chore/dev-workflow` |
-| 依赖 / 构建 | `build/` | `build/ci-setup` |
+| Feature | `feat/` | `feat/inline-comments` |
+| Bug fix | `fix/` | `fix/build-typescript` |
+| Refactor | `refactor/` | `refactor/review-pipeline` |
+| Docs / process | `chore/` | `chore/dev-workflow` |
+| Build / deps | `build/` | `build/ci-setup` |
 
-## 提交信息规范
+## Commit Convention
 
-采用 Conventional Commits 风格，中文或英文描述均可：
+Conventional Commits (EN or CN):
 
 ```
 <type>(<scope>): <subject>
-
 <type>: feat | fix | refactor | chore | docs | build | test
 ```
 
-示例：`feat(review): 支持行内评论并定位到具体代码行`
+Example: `feat(review): add inline comments with diff suggestions`
 
-## 开发迭代流程
+## Dev Iteration Flow
 
-1. 从路线图认领 Issue（或新建 Issue）并给自己分配。
-2. 从 `main` 拉分支：`git checkout -b feat/xxx main`。
-3. 在分支上开发，提交信息遵循上述规范。
-4. 推送分支，创建 PR，在描述里 `Closes #<issue>` 关联 Issue。
-5. 等待 CI（TypeScript 构建）通过 + 至少 1 人审查。
-6. 审查通过后合并，合并后删除分支。
+1. Claim an Issue from the roadmap (or create one) and self-assign.
+2. Branch from `main`: `git checkout -b feat/xxx main`.
+3. Commit following the convention above.
+4. Push, open a PR, reference the issue with `Closes #<issue>`.
+5. Wait for CI (build + tests) and at least 1 review.
+6. Merge, then delete the branch.
 
-## 代码规范
+## Code Standards
 
-- TypeScript `strict` 模式，禁止 `any`（如有特殊必要需注释说明）。
-- 核心审查逻辑放在 `src/review/`，三种部署形态共享同一套内核。
-- 海姆达尔人设 prompt 的唯一来源是 `src/review/prompt.ts`（Worker 共享），Actions 模式需同步 `scripts/heimdall-review.js` 中的副本。
-- 涉及 `template/heimdall-review.yml`、Worker 或 prompt 的改动，请同步更新 README 对应章节。
+- TypeScript `strict`; no `any` (annotate if truly necessary).
+- Core review logic lives in `src/review/` — shared by all three deployment modes.
+- The Heimdall persona prompt's **single source** is `src/review/prompt.ts` (shared by Worker); the Actions copy in `scripts/heimdall-review.js` must be kept in sync.
+- Changes to `template/heimdall-review.yml`, the Worker, or the prompt must update the corresponding README section.
 
-## 测试与验证
+## Testing & Verification
 
-- 提交前本地运行 `npm test`（构建 + 单元测试，`node:test` 零依赖）。
-- 审查内核改动建议同步补充 `test/` 下的单元测试。
-- 涉及 GitHub Actions 模式的改动，可在测试仓库实际提 PR 观察审查报告。
+- Run `npm test` (build + unit tests, zero-dep `node:test`) before committing.
+- Add `test/` unit tests for review-core changes.
+- For GitHub Actions mode changes, verify with a real PR in a test repo.

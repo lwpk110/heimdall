@@ -1,62 +1,61 @@
-# AGENTS.md — 项目指南（供 AI Agent 快速上手）
+# AGENTS.md — Project Guide (for AI Agents)
 
-## 项目是什么
+## What is this project?
 
-**海姆达尔 (Heimdall)** 是一个 **AI 代码审查机器人**：接入 GitHub 仓库后，自动或按需（`@CoderHeimdall`）审查每个 Pull Request 的 diff，以 GitHub Review 发布中文审查报告（变更摘要、严重度分级、行内评论、diff 修复建议）。
+**Heimdall (海姆达尔)** is an **AI code review bot**: connected to a GitHub repo, it reviews each PR's diff automatically or on demand (`@CoderHeimdall`), posting a Chinese/English review report (change summary, severity, inline comments, diff suggestions).
 
-核心卖点：**模型自由**——支持 Claude / GPT / Gemini / 本地模型，统一 `AI_API_KEY` + `AI_BASE_URL` 可走任意代理网关。
+Core selling point: **model freedom** — supports Claude / GPT / Gemini / local models via unified `AI_API_KEY` + `AI_BASE_URL`.
 
-## 技术栈
+## Tech Stack
 
-- **语言**：TypeScript（strict）、Node ≥ 18
-- **运行时**：Cloudflare Workers（`nodejs_compat`）、Probot（自托管）、GitHub Actions（零依赖脚本）
-- **测试**：`node:test`（零依赖，测试 `lib/` 编译产物）
-- **构建**：`tsc`（`lib/`，gitignore）
+- **Language**: TypeScript (strict), Node ≥ 18
+- **Runtimes**: Cloudflare Workers (`nodejs_compat`), Probot (self-hosted), GitHub Actions (zero-dep script)
+- **Tests**: `node:test` (tests run against the compiled `lib/`)
+- **Build**: `tsc` → `lib/` (gitignored)
 
-## 目录速览
+## Directory Cheat Sheet
 
-| 路径 | 作用 |
+| Path | Role |
 | --- | --- |
-| `src/review/prompt.ts` | **海姆达尔人设 prompt（唯一来源）**——审查质量核心，Worker 直接 import；改这里要同步 `scripts/heimdall-review.js` 的副本 |
-| `src/review/parse.ts` | LLM 结构化 JSON 解析 + 报告渲染 + 宽松 JSON 容错 + 去重 |
-| `src/review/providers.ts` | AI 提供方（anthropic / openai / gemini + 本地模型）|
-| `src/review/repo-config.ts` | `.github/heimdall.yml` 解析、glob 过滤、严重度阈值、白名单 |
-| `src/review/index.ts` | 审查主流程（触发 → 过滤 → 审查 → 回写）|
-| `src/app.ts` | Probot 事件订阅（PR 事件 + `@CoderHeimdall` 评论）|
-| `worker/index.ts` | Cloudflare Worker（webhook 接收、签名校验、去重、审查、状态标记）|
-| `scripts/heimdall-review.js` | Actions 模式审查脚本（零依赖，复制到目标仓库）|
-| `template/heimdall-review.yml` | Actions 模式 workflow（复制到目标仓库）|
-| `test/` | 单元测试（node:test）|
+| `src/review/prompt.ts` | **Heimdall persona prompt (single source)** — quality core; Worker imports it directly; changes must sync the `scripts/heimdall-review.js` copy |
+| `src/review/parse.ts` | LLM JSON parse + report render + loose-JSON tolerance + dedup + **labels (en/zh/bilingual)** |
+| `src/review/providers.ts` | AI providers (anthropic / openai / gemini + local) |
+| `src/review/repo-config.ts` | `.github/heimdall.yml` parsing, glob filters, thresholds, whitelist |
+| `src/review/index.ts` | Main review flow (trigger → filter → review → post) |
+| `src/app.ts` | Probot event subscriptions (PR events + `@CoderHeimdall`) |
+| `worker/index.ts` | Cloudflare Worker (webhook, signature, dedup, review, status marks) |
+| `scripts/heimdall-review.js` | Actions-mode script (zero-dep, copied to target repo) |
+| `template/heimdall-review.yml` | Actions-mode workflow (copied to target repo) |
+| `test/` | Unit tests (node:test) |
 
-## 常用命令
+## Common Commands
 
 ```bash
 npm install
-npm test              # 构建 + 单元测试（改代码后必跑）
-npm run build         # 仅 tsc
-npm run worker:dev    # 本地调试 Worker
-npm run worker:deploy # 部署 Worker
+npm test              # build + unit tests (always run after code changes)
+npm run build         # tsc only
+npm run worker:dev    # local Worker debug
+npm run worker:deploy # deploy Worker
 ```
 
-## 核心约定（改代码必读）
+## Core Conventions (read before changing code)
 
-1. **审查内核三形态共享**：改 `src/review/` 下的逻辑，Worker 自动生效（import 共享模块）；但 `scripts/heimdall-review.js` 是**独立副本**，涉及 prompt / 解析 / 渲染的改动必须同步。
-2. **prompt 是唯一来源**：`src/review/prompt.ts`。审查质量由它决定，改动需谨慎并补测试。
-3. **默认仅按需审查**：`auto_review` 未配置 = PR 打开不自动审，`@CoderHeimdall` 才审。
-4. **去重三重机制**：`hasExistingReview`（GitHub review 查询）+ `heimdall/reviewed` commit status（需 App `statuses` 权限）+ Worker 模块级缓存。
-5. **Cloudflare 坑**：Worker 需显式 `import { Buffer }`；GitHub API 请求必须带 `User-Agent`；free 计划 `waitUntil` 30s（AI 请求用 `thinking: { type: "disabled" }`）。
+1. **Three modes share one core**: changes under `src/review/` apply to the Worker automatically (imported modules); `scripts/heimdall-review.js` is a **separate copy** — sync prompt/parse/render changes.
+2. **Prompt is the single source**: `src/review/prompt.ts`. Quality is driven by it; change carefully + add tests.
+3. **Default on-demand**: unset `auto_review` = no auto review; `@CoderHeimdall` only.
+4. **Triple dedup**: `hasExistingReview` (review query) + `heimdall/reviewed` commit status (needs App `statuses` perm) + Worker module cache.
+5. **Cloudflare gotchas**: explicit `import { Buffer }`; GitHub API needs `User-Agent`; free `waitUntil` 30s (use `thinking: { type: "disabled" }`).
+6. **Report language**: `REVIEW_LANGUAGE` = `en` (default) / `zh` / `bilingual`; labels in `src/review/parse.ts`.
 
-## 审查报告结构（parse.ts 渲染）
+## Report Structure (rendered by parse.ts)
 
 ```
-变更摘要（🟢 +X / 🔴 -Y + 文件表格）→ 变更概述 → 🔍 问题汇总
-→ <details>🤖 审查评论（表格：严重度|位置|问题）</details>
-→ <details>ℹ️ 审查信息</details>
+Change Summary (🟢 +X / 🔴 -Y + file table) → Overview → 🔍 issue summary
+→ <details>🤖 Review Comments (table: severity|location|issue)</details>
+→ <details>ℹ️ Review Info</details>
 ```
-行内评论（挂在代码行）：`🔴 行动式标题 + **修复建议** + diff 代码块`。
+Inline comments (pinned to lines): `🔴 actionable title + **Fix Suggestion** + diff`.
 
-## 完整配置开关
+## Config Switches
 
-见 README「配置开关速查」章节。关键：
-- `.github/heimdall.yml`：`auto_review` / `block_on_critical` / `include` / `exclude` / `min_severity` / `instructions` / `manual_reviewers`
-- 环境变量：`AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL` / `MAX_DIFF_LENGTH`
+See README "Configuration Switches". Key: `.github/heimdall.yml` (`auto_review` / `block_on_critical` / `include` / `exclude` / `min_severity` / `instructions` / `manual_reviewers`) and env (`AI_PROVIDER` / `AI_MODEL` / `AI_API_KEY` / `AI_BASE_URL` / `REVIEW_LANGUAGE` / `MAX_DIFF_LENGTH`).
