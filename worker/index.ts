@@ -1,7 +1,7 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
-import { formatSafeDiff, parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "../src/review/parse";
-import { SYSTEM_PROMPT } from "../src/review/prompt";
+import { formatSafeDiff, LABELS, parseReview, renderMarkdown, ReviewLanguage, ReviewResult, validateIssueLines } from "../src/review/parse";
+import { buildSystemPrompt } from "../src/review/prompt";
 import { filterByMinSeverity, filterFiles, parseHeimdallConfig, RepoConfig } from "../src/review/repo-config";
 
 // 模块级去重缓存：记录最近已审查的 PR+commit（缓解 serverless 并发竞态；
@@ -23,6 +23,7 @@ interface Env {
   GEMINI_API_KEY?: string;
   GEMINI_BASE_URL?: string;
   AI_MODEL?: string;
+  REVIEW_LANGUAGE?: string;
   MAX_DIFF_LENGTH?: string;
 }
 
@@ -190,14 +191,17 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
   const stats = diffStats(reviewable);
   const diff = formatSafeDiff(reviewable, Number(env.MAX_DIFF_LENGTH ?? 40000));
 
+const language: ReviewLanguage = (env.REVIEW_LANGUAGE ?? "en").toLowerCase() as ReviewLanguage;
+const L = LABELS[language] ?? LABELS.en;
+
   if (!diff.trim()) {
-    await postReview(gh, owner, repo, pullNumber, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
+    await postReview(gh, owner, repo, pullNumber, renderReport(stats, "", undefined, language, L.noChange));
     return;
   }
 
   const systemPrompt = repoConfig.instructions
-    ? SYSTEM_PROMPT + "\n\n### 团队自定义审查指令\n" + repoConfig.instructions
-    : SYSTEM_PROMPT;
+    ? `${buildSystemPrompt(language)}\n\n### Team Custom Instructions / 团队自定义审查指令\n${repoConfig.instructions}`
+    : buildSystemPrompt(language);
 
   // 2. 调用 LLM 生成审查报告
   let report: string;
@@ -210,7 +214,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     criticalCount = filtered ? filtered.issues.filter((i) => i.severity === "critical").length : 0;
     if (filtered) {
       filtered.issues = validateIssueLines(filtered.issues, reviewable);
-      report = renderReport(stats, renderMarkdown(filtered), filtered);
+      report = renderReport(stats, renderMarkdown(filtered, language), filtered, language);
       inlineComments = filtered.issues
         .filter((i) => i.line > 0)
         .map((i) => ({
@@ -219,7 +223,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
           side: "RIGHT",
           body: [
             `${severityLabel(i.severity)} **${i.comment}**`,
-            i.suggestion ? `\n\n**修复建议**：${i.suggestion}` : "",
+            i.suggestion ? `\n\n**${L.fixSuggestion}**：${i.suggestion}` : "",
             i.suggestionCode
               ? `\n\n\`\`\`suggestion\n${i.suggestionCode}\n\`\`\``
               : i.diff
@@ -228,10 +232,10 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
           ].join(""),
         }));
     } else {
-      report = renderReport(stats, raw);
+      report = renderReport(stats, raw, undefined, language);
     }
   } catch (err) {
-    report = renderReport(stats, `⚠️ 审查失败：${err instanceof Error ? err.message : String(err)}`);
+    report = renderReport(stats, `⚠️ ${L.reviewFailed}：${err instanceof Error ? err.message : String(err)}`, undefined, language);
   }
 
   // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
@@ -328,37 +332,38 @@ function diffStats(files: Array<{ filename?: string; additions?: number; deletio
   };
 }
 
-function renderReport(stats: DiffStats, content: string, result?: ReviewResult): string {
+function renderReport(stats: DiffStats, content: string, result?: ReviewResult, language: ReviewLanguage = "en", noChangeMessage?: string): string {
+  const L = LABELS[language] ?? LABELS.en;
   const issues = result?.issues ?? [];
   const critical = issues.filter((i) => i.severity === "critical").length;
   const important = issues.filter((i) => i.severity === "important").length;
   const normal = issues.filter((i) => i.severity === "normal").length;
 
-  const statusBadge = critical > 0 ? "🔴 **阻断合并**" : important > 0 ? "🟡 **需关注**" : "🟢 **可以通过**";
+  const statusBadge = critical > 0 ? L.statusBlock : important > 0 ? L.statusAttention : L.statusPass;
   const issueCounts = `🔴 **${critical} Critical** · 🟡 **${important} Important** · 🟢 **${normal} Normal**`;
-  const scale = `🟢 +${stats.additions} / 🔴 -${stats.deletions} (${stats.files} 文件)`;
+  const scale = `🟢 +${stats.additions} / 🔴 -${stats.deletions} (${stats.files})`;
 
   const table =
     stats.fileDetails.length > 0
-      ? ["\n### 📝 文件变更明细", "", "| 文件 | 变更规模 |", "| --- | :---: |"]
+      ? ["", `### 📝 ${L.filesDetail}`, "", `| ${L.fileCol} | ${L.changeCol} |`, "| --- | :---: |"]
           .concat(stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`))
           .join("\n")
       : "";
 
   const info = `
 <details>
-<summary>ℹ️ 审查环境与元数据</summary>
+<summary>ℹ️ ${L.reviewInfo}</summary>
 
-- **审查文件**：${stats.files} 个文件
-- **变更规模**：🟢 +${stats.additions} / 🔴 -${stats.deletions} 行
-- **守护者人设**：Heimdall Bifrost Guard v0.1
+- **${L.filesReviewed}**：${stats.files}
+- **${L.changeSize}**：🟢 +${stats.additions} / 🔴 -${stats.deletions}
+- **${L.guardian}**：Heimdall Bifrost Guard v1.0
 
 </details>`;
 
-  return `## 🛡️ 海姆达尔 (Heimdall) · 代码审查报告
-> *"看穿每一行代码，守护合并之门"*
+  return `## ${L.reportTitle}
+> ${L.reportSubtitle}
 
-| 审查状态 | 风险分布 | 变更规模 |
+| ${L.status} | ${L.risk} | ${L.scale} |
 | :---: | :---: | :---: |
 | ${statusBadge} | ${issueCounts} | ${scale} |
 
@@ -366,7 +371,7 @@ ${table}
 
 ---
 
-${content}
+${content || noChangeMessage || ""}
 
 ${info}`;
 }
@@ -399,7 +404,7 @@ async function fetchTimeout(url: string, options: RequestInit, ms = 28000): Prom
   }
 }
 
-async function generateReview(env: Env, diff: string, systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
+async function generateReview(env: Env, diff: string, systemPrompt: string = buildSystemPrompt()): Promise<string> {
   const provider = (env.AI_PROVIDER ?? "anthropic").toLowerCase();
 
   if (provider === "openai") {

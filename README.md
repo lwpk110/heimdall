@@ -6,6 +6,12 @@
 
 **核心特性：模型自由。** 你**自己配置模型**——支持 Claude / GPT / Gemini / 本地模型（Ollama / vLLM），可通过统一 `AI_API_KEY` + `AI_BASE_URL` 走任意代理网关，代码和审查内容都经你自己的配置。
 
+### 🥲 为什么会有海姆达尔？（答：被 Copilot 气出来的）
+
+> 故事要从那个"说改就改"的订阅说起——某天 Copilot 悄悄把套餐契约改了：模型换了、token 缩水了，你那 10 美元/月的 Code Review 配额，**往往月中就弹窗"配额用尽，请升级"**。月底回头一看，钱是花了不少，Code Review 却一天没用上，全去给财报添砖加瓦了。
+>
+> 海姆达尔不玩这套：**模型你自己选、成本你自己控、代码不出你内网**。彩虹桥永远为你敞开，且不搞"契约变更不另行通知"。
+
 ## 特性
 
 - **三形态部署**：GitHub Actions（单仓库自用、零服务器）、Cloudflare Workers（无服务器、可作为 GitHub App 分发到任意仓库）、Probot / Docker 自托管（代码不出内网）
@@ -209,6 +215,7 @@ AI_MODEL=claude-sonnet-5       # 你的网关支持的模型 ID
 | 团队自定义审查指令 | `instructions: \| ...` | `.github/heimdall.yml` |
 | 限制谁能手动触发 | `manual_reviewers: [octocat]` | `.github/heimdall.yml` |
 | **有严重问题就阻止合并** | `block_on_critical: true`（+ 分支保护加 `heimdall/critical` 检查）| `.github/heimdall.yml` + GitHub 分支保护 |
+| **审查报告语言** | `REVIEW_LANGUAGE = en \| zh \| bilingual`（**默认 en**，bilingual 中英并列）| 环境变量 / Actions Variable |
 | 关闭自动、纯按需 | 不配置 `auto_review`（默认即仅按需）| — |
 
 > 环境变量：自托管 `.env` / Worker 用 `wrangler secret put` 或 `[vars]` / Actions 用 Secrets + Variables。

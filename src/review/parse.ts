@@ -169,17 +169,149 @@ function normalizeIssue(raw: unknown): ReviewIssue | null {
   return issue;
 }
 
-/** 把结构化结果渲染为 markdown 报告（不含头部统计行，含折叠块） */
-export function renderMarkdown(result: ReviewResult): string {
+export type ReviewLanguage = "en" | "zh" | "bilingual";
+
+interface ReviewLabels {
+  overview: string;
+  focusAreas: string;
+  verification: string;
+  reviewComments: string;
+  tableHeader: string;
+  fixClick: string;
+  fixDiff: string;
+  fixNote: string;
+  suggestion: string;
+  noIssues: string;
+  severity: Record<Severity, string>;
+  // report header
+  reportTitle: string;
+  reportSubtitle: string;
+  status: string;
+  risk: string;
+  scale: string;
+  statusBlock: string;
+  statusAttention: string;
+  statusPass: string;
+  filesDetail: string;
+  fileCol: string;
+  changeCol: string;
+  reviewInfo: string;
+  filesReviewed: string;
+  changeSize: string;
+  guardian: string;
+  noChange: string;
+  reviewFailed: string;
+  fixSuggestion: string;
+}
+
+export const LABELS: Record<ReviewLanguage, ReviewLabels> = {
+  en: {
+    overview: "### 📖 Overview",
+    focusAreas: "#### 🎯 Focus Areas",
+    verification: "### 🧪 Suggested Regression Tests",
+    reviewComments: "🔍 Review Comments & Issues",
+    tableHeader: "| Severity | Location | Issue | Fix Support |",
+    fixClick: "⚡ 1-Click Suggestion",
+    fixDiff: "💡 Diff Provided",
+    fixNote: "📝 Note",
+    suggestion: "💡 Suggestion",
+    noIssues: "No significant issues found.",
+    severity: { critical: "### 🔴 Critical", important: "### 🟡 Important", normal: "### 🟢 Normal" },
+    reportTitle: "🛡️ Heimdall · Code Review Report",
+    reportSubtitle: "*\"Guard every line, watch the gate\"*",
+    status: "Status",
+    risk: "Risk Distribution",
+    scale: "Change Scale",
+    statusBlock: "🔴 **BLOCK MERGE**",
+    statusAttention: "🟡 **Needs Attention**",
+    statusPass: "🟢 **Pass**",
+    filesDetail: "File Changes",
+    fileCol: "File",
+    changeCol: "Change",
+    reviewInfo: "ℹ️ Review Info",
+    filesReviewed: "Files reviewed",
+    changeSize: "Change size",
+    guardian: "Guardian persona",
+    noChange: "No reviewable code changes in this PR.",
+    reviewFailed: "Review failed",
+    fixSuggestion: "Fix Suggestion",
+  },
+  zh: {
+    overview: "### 📖 变更概述",
+    focusAreas: "#### 🎯 重点复核领域",
+    verification: "### 🧪 建议回归测试清单",
+    reviewComments: "🔍 审查评论与问题清单",
+    tableHeader: "| 严重度 | 位置 | 问题 | 修复支持 |",
+    fixClick: "⚡ 1-Click Suggestion",
+    fixDiff: "💡 附 Diff 代码",
+    fixNote: "📝 说明",
+    suggestion: "💡 建议",
+    noIssues: "未发现明显问题。",
+    severity: { critical: "### 🔴 严重问题", important: "### 🟡 建议改进", normal: "### 🟢 良好实践" },
+    reportTitle: "🛡️ 海姆达尔 (Heimdall) · 代码审查报告",
+    reportSubtitle: "*\"看穿每一行代码，守护合并之门\"*",
+    status: "审查状态",
+    risk: "风险分布",
+    scale: "变更规模",
+    statusBlock: "🔴 **阻断合并**",
+    statusAttention: "🟡 **需关注**",
+    statusPass: "🟢 **可以通过**",
+    filesDetail: "文件变更明细",
+    fileCol: "文件",
+    changeCol: "变更规模",
+    reviewInfo: "审查环境与元数据",
+    filesReviewed: "审查文件",
+    changeSize: "变更规模",
+    guardian: "守护者人设",
+    noChange: "本次 PR 没有可审查的代码变更。",
+    reviewFailed: "审查失败",
+    fixSuggestion: "修复建议",
+  },
+  bilingual: {
+    overview: "### 📖 Overview / 变更概述",
+    focusAreas: "#### 🎯 Focus Areas / 重点复核领域",
+    verification: "### 🧪 Suggested Regression Tests / 建议回归测试清单",
+    reviewComments: "🔍 Review Comments & Issues / 审查评论与问题清单",
+    tableHeader: "| Severity / 严重度 | Location / 位置 | Issue / 问题 | Fix / 修复支持 |",
+    fixClick: "⚡ 1-Click Suggestion",
+    fixDiff: "💡 Diff Provided / 附 Diff",
+    fixNote: "📝 Note / 说明",
+    suggestion: "💡 Suggestion / 建议",
+    noIssues: "No significant issues found. / 未发现明显问题。",
+    severity: { critical: "### 🔴 Critical / 严重问题", important: "### 🟡 Important / 建议改进", normal: "### 🟢 Normal / 良好实践" },
+    reportTitle: "🛡️ Heimdall · Code Review Report / 海姆达尔代码审查报告",
+    reportSubtitle: "*\"Guard every line, watch the gate\" / \"看穿每一行代码，守护合并之门\"*",
+    status: "Status / 审查状态",
+    risk: "Risk / 风险分布",
+    scale: "Change / 变更规模",
+    statusBlock: "🔴 **BLOCK MERGE / 阻断合并**",
+    statusAttention: "🟡 **Needs Attention / 需关注**",
+    statusPass: "🟢 **Pass / 可以通过**",
+    filesDetail: "File Changes / 文件变更明细",
+    fileCol: "File / 文件",
+    changeCol: "Change / 变更规模",
+    reviewInfo: "Review Info / 审查环境与元数据",
+    filesReviewed: "Files reviewed / 审查文件",
+    changeSize: "Change size / 变更规模",
+    guardian: "Guardian / 守护者人设",
+    noChange: "No reviewable code changes. / 本次 PR 没有可审查的代码变更。",
+    reviewFailed: "Review failed / 审查失败",
+    fixSuggestion: "Fix Suggestion / 修复建议",
+  },
+};
+
+/** 把结构化结果渲染为 markdown 报告（不含头部统计行，含折叠块）；language 默认 en */
+export function renderMarkdown(result: ReviewResult, language: ReviewLanguage = "en"): string {
+  const L = LABELS[language];
   const { summary, focusAreas, verificationSteps, issues } = result;
   const lines: string[] = [];
 
   if (summary) {
-    lines.push(`### 📖 变更概述`, summary, "");
+    lines.push(L.overview, summary, "");
   }
 
   if (focusAreas && focusAreas.length > 0) {
-    lines.push(`#### 🎯 重点复核领域`);
+    lines.push(L.focusAreas);
     for (const area of focusAreas) {
       lines.push(`- ${area}`);
     }
@@ -187,23 +319,23 @@ export function renderMarkdown(result: ReviewResult): string {
   }
 
   if (verificationSteps && verificationSteps.length > 0) {
-    lines.push(`### 🧪 建议回归测试清单`);
+    lines.push(L.verification);
     for (const step of verificationSteps) {
       lines.push(`- [ ] ${step}`);
     }
     lines.push("");
   }
 
-  lines.push("<details>", "<summary>🔍 审查评论与问题清单</summary>", "");
+  lines.push("<details>", `<summary>${L.reviewComments}</summary>`, "");
 
   // line>0 的问题用表格汇总（详情在行内评论）；line=0 的问题列表展示完整详情
   const inlineIssues = issues.filter((i) => i.line > 0);
   const orphanIssues = issues.filter((i) => i.line === 0);
   if (inlineIssues.length > 0) {
-    lines.push("| 严重度 | 位置 | 问题 | 修复支持 |", "| :---: | --- | --- | :---: |");
+    lines.push(L.tableHeader, "| :---: | --- | --- | :---: |");
     for (const i of inlineIssues) {
       const loc = `\`${i.file}:${i.line}\``;
-      const fixStatus = i.suggestionCode ? "⚡ 1-Click Suggestion" : i.diff ? "💡 附 Diff 代码" : "📝 说明";
+      const fixStatus = i.suggestionCode ? L.fixClick : i.diff ? L.fixDiff : L.fixNote;
       lines.push(`| ${SEVERITY_ICONS[i.severity]} | ${loc} | ${i.comment} | ${fixStatus} |`);
     }
     lines.push("");
@@ -211,10 +343,10 @@ export function renderMarkdown(result: ReviewResult): string {
   for (const sev of SEVERITIES) {
     const group = orphanIssues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
-    lines.push(`### ${SEVERITY_LABELS[sev]}`, "");
+    lines.push(L.severity[sev], "");
     for (const i of group) {
       lines.push(`- **\`${i.file}\`**：${i.comment}`);
-      if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
+      if (i.suggestion) lines.push(`  > ${L.suggestion}：${i.suggestion}`);
       if (i.suggestionCode) {
         lines.push("", "  ```suggestion", ...indentDiff(i.suggestionCode), "  ```");
       } else if (i.diff) {
@@ -224,7 +356,7 @@ export function renderMarkdown(result: ReviewResult): string {
     lines.push("");
   }
   if (issues.length === 0) {
-    lines.push("未发现明显问题。", "");
+    lines.push(L.noIssues, "");
   }
   lines.push("</details>");
   return lines.join("\n").trim();

@@ -80,3 +80,14 @@ export const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加�
 {"summary":"重构响应模型","focus_areas":["🔒 安全性：敏感数据暴露"],"verification_steps":["接口断言测试：验证 API 响应 json 不含 passwordHash"],"issues":[{"severity":"critical","file":"demo.ts","line":12,"comment":"应将 User 对象的敏感字段（passwordHash）排除，仅返回公开 DTO。当前 post.author 直接引用完整 User 对象，passwordHash 会随响应泄露给客户端。","suggestion":"定义公开 AuthorDTO（只含 id/username），映射后再赋值给 post.author","suggestion_code":"post.author = toPublicAuthor(author);","diff":"- post.author = author;\n+ post.author = toPublicAuthor(author);"}]}
 未定义引用（调用不存在的函数/方法）：
 {"summary":"更新签名逻辑","focus_areas":["⚙️ 核心逻辑：未定义方法"],"verification_steps":["运行单元测试：验证 sign 方法被正确定义与调用"],"issues":[{"severity":"critical","file":"demo.ts","line":20,"comment":"sign 函数未定义，此处调用会抛 ReferenceError。应定义 sign 方法或注入签名依赖。","suggestion":"导入 jsonwebtoken 并注入 sign，或声明方法","suggestion_code":"return jwt.sign({ uid: user.id }, this.key, { expiresIn: '1h' });","diff":"- return this.sign({uid:user.id}, this.key, '7d');\n+ return jwt.sign({uid:user.id}, this.key, {expiresIn:'1h'});"}]}`;
+
+/** 追加语言输出指令到系统 prompt；默认 en */
+export function buildSystemPrompt(language: "en" | "zh" | "bilingual" = "en"): string {
+  const directive: Record<"en" | "zh" | "bilingual", string> = {
+    en: "\n\n【输出语言】\nUse English for all output (summary, comment, suggestion).",
+    zh: "\n\n【输出语言】\n所有输出（summary、comment、suggestion）使用中文。",
+    bilingual:
+      "\n\n【输出语言】\nOutput in English as the primary language, with concise Chinese in parentheses for key points (summary, comment).",
+  };
+  return SYSTEM_PROMPT + directive[language];
+}
