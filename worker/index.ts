@@ -144,6 +144,17 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已审查过，跳过重复审查`);
     return;
   }
+  // 跨触发即时去重：已有 heimdall/reviewed 成功状态则跳过（防自动+手动竞态重复）
+  if (headSha) {
+    const stRes = await gh(`/repos/${owner}/${repo}/commits/${headSha}/status`);
+    if (stRes.ok) {
+      const st = (await stRes.json()) as { statuses?: Array<{ context?: string; state?: string }> };
+      if (st.statuses?.some((s) => s.context === "heimdall/reviewed" && s.state === "success")) {
+        console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已有审查标记，跳过`);
+        return;
+      }
+    }
+  }
   if (!filesRes.ok) throw new Error(`读取文件列表失败：${filesRes.status}`);
   const files = (await filesRes.json()) as Array<{
     filename: string;
@@ -214,6 +225,18 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
 
   // 3. 以 Review 形式回写 PR（整体报告 + 行内评论）
   await postReview(gh, owner, repo, pullNumber, report, inlineComments);
+
+  // 4. 标记该 commit 已审查（供跨触发去重，防自动+手动竞态重复）
+  if (headSha) {
+    try {
+      await gh(`/repos/${owner}/${repo}/statuses/${headSha}`, {
+        method: "POST",
+        body: { state: "success", context: "heimdall/reviewed", description: "已完成海姆达尔审查" },
+      });
+    } catch (err) {
+      console.error("设置已审查状态失败：", err instanceof Error ? err.message : err);
+    }
+  }
 }
 
 function severityLabel(severity: string): string {
