@@ -87,21 +87,21 @@ test("renderMarkdown：按严重度分组，line 0 不带行号", () => {
 test("parseReview：suggestion 字段解析与渲染", () => {
   const raw = JSON.stringify({
     summary: "s",
-    issues: [{ severity: "critical", file: "a.ts", line: 5, comment: "问题", suggestion: "修复建议" }],
+    issues: [{ severity: "critical", file: "a.ts", line: 0, comment: "问题", suggestion: "修复建议" }],
   });
   const result = parseReview(raw);
   assert.equal(result.issues[0].suggestion, "修复建议");
   const md = renderMarkdown(result);
   assert.ok(md.includes("💡 建议：修复建议"));
-  // 无 suggestion 时不显示建议块
-  const md2 = renderMarkdown({ summary: "", issues: [{ severity: "important", file: "b.ts", line: 1, comment: "c" }] });
-  assert.ok(!md2.includes("💡 建议"));
+  // line>0 的问题详情在行内评论，body 不显示 suggestion（避免重复）
+  const md3 = renderMarkdown({ summary: "", issues: [{ severity: "critical", file: "b.ts", line: 5, comment: "c", suggestion: "s" }] });
+  assert.ok(!md3.includes("💡 建议"));
 });
 
 test("parseReview：diff 字段解析与渲染", () => {
   const raw = JSON.stringify({
     summary: "s",
-    issues: [{ severity: "important", file: "b.ts", line: 2, comment: "c", diff: "- const x = 1;\n+ const x = 2;" }],
+    issues: [{ severity: "important", file: "b.ts", line: 0, comment: "c", diff: "- const x = 1;\n+ const x = 2;" }],
   });
   const result = parseReview(raw);
   assert.equal(result.issues[0].diff, "- const x = 1;\n+ const x = 2;");
@@ -109,6 +109,9 @@ test("parseReview：diff 字段解析与渲染", () => {
   assert.ok(md.includes("```diff"));
   assert.ok(md.includes("- const x = 1;"));
   assert.ok(md.includes("+ const x = 2;"));
+  // line>0 的问题 diff 详情在行内评论，body 不显示（避免重复）
+  const md3 = renderMarkdown({ summary: "", issues: [{ severity: "normal", file: "a.ts", line: 1, comment: "c", diff: "- x\n+ y" }] });
+  assert.ok(!md3.includes("```diff"));
   // 无 diff 时不渲染代码块
   const md2 = renderMarkdown({ summary: "", issues: [{ severity: "normal", file: "a.ts", line: 1, comment: "c" }] });
   assert.ok(!md2.includes("```diff"));

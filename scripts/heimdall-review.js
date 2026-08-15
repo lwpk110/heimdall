@@ -573,11 +573,14 @@ function renderMarkdown(result) {
     for (const i of group) {
       const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
       lines.push(`- **\`${loc}\`**：${i.comment}`);
-      if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
-      if (i.diff) {
-        lines.push("", "  ```diff");
-        for (const dl of String(i.diff).split("\n")) lines.push(dl ? "  " + dl : "  ");
-        lines.push("  ```");
+      // line>0 的问题详情在行内评论（避免重复）；line=0 无法行内，body 展示完整详情
+      if (i.line === 0) {
+        if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
+        if (i.diff) {
+          lines.push("", "  ```diff");
+          for (const dl of String(i.diff).split("\n")) lines.push(dl ? "  " + dl : "  ");
+          lines.push("  ```");
+        }
       }
     }
     lines.push("");
