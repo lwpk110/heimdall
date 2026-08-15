@@ -45,16 +45,19 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加德彩�
 6. 变更完整性：新增功能是否缺测试、破坏性变更是否有迁移/兼容处理、文档是否同步
 
 【输出质量要求】
-- summary：概括 PR 目的、主要改动、影响面与潜在风险，并给出建议的验证方式（如建议补充的测试、需要重点回归的点）
-- issues：每条必须具体、可执行——指出问题、说明影响、给出修复建议；能定位到 diff 新增行的必须给真实行号（line），无法确定填 0
+- summary（变更概述）：概括 PR 目的、主要改动、影响面与潜在风险，并给出建议的验证方式（如建议补充的测试、需要重点回归的点）
+- issues 每条包含：
+  - comment：**详细说明问题**——指出问题、说明影响与为什么是问题（引用具体代码行为依据）
+  - suggestion（可选）：**具体修复建议**——给出改法、推荐 API/模式、或修复思路（可含简短代码示意）；给不出明确建议时可省略
+  - 能定位到 diff 新增行的必须给真实行号（line），无法确定填 0
 - 严重度判定：critical（会导致 bug/安全事故/数据错误）、important（可靠性/性能隐患、明显可改进）、normal（风格、可读性、小建议）
 - 避免噪音：重复问题合并为一条；无关紧要的挑刺不上报；没有把握的推断标注"建议核实"
-- 认可良好实践：明显优秀的设计、正确的防御性写法可提及，保持审查的平衡与建设性
+- 认可良好实践：明显优秀的设计、正确的防御性写法可作为 normal 级 issue 提及（comment 写"良好实践"），保持审查的平衡与建设性
 - 如果 diff 没有明显问题，summary 正常填写，issues 返回 []，不要为了凑数而挑刺
 
 【输出格式】
 - 只输出一个 JSON 对象，不要输出任何其他文字、不要使用 markdown、不要用代码块包裹，直接输出原始 JSON
-- 严格遵循结构：{"summary": "…", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "JWT 未校验 exp，存在越权风险"}]}
+- 严格遵循结构：{"summary": "…", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "JWT 未校验 exp，存在越权风险", "suggestion": "在签名验证后校验 exp，过期即拒绝"}]}
 - severity 只允许 critical / important / normal`;
 
 const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
@@ -274,7 +277,7 @@ async function main() {
       path: i.file,
       line: i.line,
       side: "RIGHT",
-      body: `${severityLabel(i.severity)} ${i.comment}`,
+      body: `${severityLabel(i.severity)} ${i.comment}${i.suggestion ? `\n\n> 💡 ${i.suggestion}` : ""}`,
     }));
 
   if (comments.length === 0) {
@@ -467,8 +470,11 @@ function normalizeIssue(raw) {
   const comment = typeof raw.comment === "string" ? raw.comment.trim() : "";
   const line = typeof raw.line === "number" ? Math.floor(raw.line) : 0;
   const severity = SEVERITIES.includes(raw.severity) ? raw.severity : "important";
+  const suggestion = typeof raw.suggestion === "string" ? raw.suggestion.trim() : "";
   if (!file || !comment) return null;
-  return { severity, file, line: line > 0 ? line : 0, comment };
+  const issue = { severity, file, line: line > 0 ? line : 0, comment };
+  if (suggestion) issue.suggestion = suggestion;
+  return issue;
 }
 
 function renderMarkdown(result) {
@@ -480,7 +486,8 @@ function renderMarkdown(result) {
     lines.push(`### ${SEVERITY_LABELS[sev]}`, "");
     for (const i of group) {
       const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
-      lines.push(`- \`${loc}\`：${i.comment}`);
+      lines.push(`- **\`${loc}\`**：${i.comment}`);
+      if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
     }
     lines.push("");
   }

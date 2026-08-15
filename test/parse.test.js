@@ -80,8 +80,22 @@ test("renderMarkdown：按严重度分组，line 0 不带行号", () => {
   // critical 在 normal 之前
   assert.ok(md.indexOf("🔴") < md.indexOf("🟢"));
   // line 0 的文件不带行号
-  assert.ok(md.includes("`a.ts`：风格"));
-  assert.ok(md.includes("`b.ts:5`：严重"));
+  assert.ok(md.includes("`a.ts`**：风格"));
+  assert.ok(md.includes("`b.ts:5`**：严重"));
+});
+
+test("parseReview：suggestion 字段解析与渲染", () => {
+  const raw = JSON.stringify({
+    summary: "s",
+    issues: [{ severity: "critical", file: "a.ts", line: 5, comment: "问题", suggestion: "修复建议" }],
+  });
+  const result = parseReview(raw);
+  assert.equal(result.issues[0].suggestion, "修复建议");
+  const md = renderMarkdown(result);
+  assert.ok(md.includes("💡 建议：修复建议"));
+  // 无 suggestion 时不显示建议块
+  const md2 = renderMarkdown({ summary: "", issues: [{ severity: "important", file: "b.ts", line: 1, comment: "c" }] });
+  assert.ok(!md2.includes("💡 建议"));
 });
 
 test("renderMarkdown：空 issue 输出提示", () => {

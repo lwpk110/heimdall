@@ -143,7 +143,7 @@ async function postInlineReview(target: ReviewTarget, stats: DiffStats, result: 
       path: i.file,
       line: i.line,
       side: "RIGHT" as const,
-      body: `**${severityLabel(i.severity)}** ${i.comment}`,
+      body: `**${severityLabel(i.severity)}** ${i.comment}${i.suggestion ? `\n\n> 💡 建议：${i.suggestion}` : ""}`,
     }));
 
   if (comments.length === 0) {
