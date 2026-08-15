@@ -80,7 +80,7 @@ https://github.com/settings/apps/new?url=https://raw.githubusercontent.com/<你�
    - **GitHub App name**：`CoderHeimdall`（全局唯一，重名可加后缀）
    - **Webhook URL**：部署 Worker 后填 `https://heimdall.<你的子域>.workers.dev/api/github/webhooks`
    - **Webhook secret**：生成随机串并保存
-   - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write（用于响应 `@CoderHeimdall` 评论）；`Metadata` → Read-only
+   - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write（用于响应 `@CoderHeimdall` 评论）；`Statuses` → Read & write（用于去重标记与 block_on_critical）；`Metadata` → Read-only
    - **Subscribe to events**：`pull_request`、`issue_comment`
 3. 记录 **App ID**，生成并下载 **Private key**（.pem）
 4. 左侧 **Install App**，安装到你的仓库
