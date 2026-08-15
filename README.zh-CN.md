@@ -294,12 +294,12 @@ observability:
     invocation_logs: true
 ```
 
-`warn`/`error` **始终输出**（失败永不隐藏）；`enabled: false` 只关掉 info/debug 细节。
+`enabled: false` 只关掉 info/debug 细节——`warn`/`error` 不受 `enabled` 门控（失败不会被 `enabled` 隐藏）。`warn` 仍受 `HEIMDALL_LOG_LEVEL` 过滤（`level=error` 时 `warn` 不输出）；`error` 恒输出。
 
 **关键事件** —— 诊断「这个 PR 为什么跳过 / 失败」：
-- `review.skip` + `reason`：`draft_pr` · `bot_pr` · `not_auto_review` · `reviewer_not_whitelisted` · `dup_review` · `dup_cache` · `dup_status` · `missing_api_key` · `empty_diff` · `non_pr_event` · `no_trigger_comment`
-- `review.error` + `reason`：`llm_error` · `parse_failed` · `post_inline_failed`
-- 阶段事件：`review.start` → `review.config` → `review.diff`（debug）→ `llm.start`/`llm.done` → `review.parse` → `review.post` → `review.complete`
+- `review.skip` + `reason`：`draft_pr` · `bot_pr` · `not_auto_review` · `reviewer_not_whitelisted` · `dup_review` · `dup_cache` · `dup_status` · `missing_api_key` · `non_pr_event` · `no_trigger_comment`
+- `review.error` + `reason`：`llm_error` · `post_inline_failed`
+- 阶段事件：`review.start` → `review.config` → `review.diff`（debug）→ `llm.done` → `review.parse` → `review.post`，终态由 `review.invocation` 汇总
 - `review.invocation` —— 每次审查一行摘要（outcome、`durationMs`、各级别问题数）
 
 示例行：

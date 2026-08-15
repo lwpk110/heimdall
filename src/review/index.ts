@@ -30,11 +30,7 @@ export async function runReview(target: ReviewTarget): Promise<void> {
   const reviewSpan = obs.start();
   obs.info("review.start", "开始审查");
 
-  if (dedupe && headSha && (await hasExistingReview(target, headSha))) {
-    obs.invocation("review.skip", "该 commit 已审查过，跳过重复审查", { reason: "dup_review" });
-    return;
-  }
-
+  // 先加载配置并应用仓库级可观测性覆盖，保证后续 skip 事件也能用仓库级配置
   const config = loadConfig();
   const repoConfig = await loadRepoConfigFromOctokit(octokit, owner, repo);
   obs = applyRepoObservability(obs, repoConfig);
@@ -43,6 +39,11 @@ export async function runReview(target: ReviewTarget): Promise<void> {
     minSeverity: repoConfig.min_severity ?? null,
     blockOnCritical: repoConfig.block_on_critical ?? false,
   });
+
+  if (dedupe && headSha && (await hasExistingReview(target, headSha))) {
+    obs.invocation("review.skip", "该 commit 已审查过，跳过重复审查", { reason: "dup_review" });
+    return;
+  }
 
   // 自动分页读取完整文件列表，避免 PR > 100 文件时静默遗漏
   const files = await octokit.paginate(octokit.pulls.listFiles, {

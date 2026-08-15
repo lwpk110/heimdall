@@ -2,8 +2,8 @@
 
 | 项 | 值 |
 | --- | --- |
-| 日期 | 2026-08-16 |
-| 状态 | 已批准（待实现） |
+| 日期 | 2026-08-15 |
+| 状态 | 已实施 |
 | 目标 | 诊断审查失败与跳过（diagnose failures & skips） |
 | 范围 | 三种运行时（Probot / Cloudflare Workers / GitHub Actions） |
 
@@ -53,9 +53,10 @@ observability:
 ### 3.3 语义
 
 - `logs.enabled = true`（默认）→ 输出各阶段 info/debug 事件
-- `logs.enabled = false` → 只保留 `warn`/`error`（失败永远可见）和调用摘要
-- `invocation_logs = true`（默认）→ 每次审查固定一行 `review.invocation`（repo/pr/sha/耗时/结果/问题数），与 `enabled` 无关
-- `HEIMDALL_LOG_LEVEL` 只过滤详细日志，不影响摘要
+- `logs.enabled = false` → info/debug 不输出；`warn`/`error` 不受 `enabled` 门控（失败不会被 `enabled` 隐藏）
+- `warn` 仍受 `HEIMDALL_LOG_LEVEL` 过滤（`level=error` 时 `warn` 被过滤），`error` 恒输出
+- `invocation_logs = true`（默认）→ 每次审查固定一行 `review.invocation`（repo/pr/sha/耗时/结果/问题数），与 `enabled`、级别无关
+- `HEIMDALL_LOG_LEVEL` 只过滤 info/warn 详细日志，不影响 error 与调用摘要
 
 **解析器约束**：手写 YAML 解析器（`src/review/repo-config.ts` 及 Actions 副本）当前不支持嵌套 map，需扩展 `observability:` 块的递归解析；`RepoConfig` 新增 `observability` 字段。Worker 的 `Env` 接口新增三个变量。
 
@@ -82,7 +83,7 @@ createObserver({ mode, enabled, invocationLogs, level }) → Observer
 
 ### 5.1 阶段事件
 
-`review.start` → `review.config` → `review.diff` → `llm.start` → `llm.done` → `review.parse` → `review.post` → `review.complete`
+`review.start` → `review.config` → `review.diff`（debug）→ `llm.done` → `review.parse` → `review.post`，终态由 `review.invocation` 汇总
 
 阶段事件携带：`durationMs`、`provider`、`model`、问题数（critical/important/normal）、文件数、diff 字节数（字节数细节放 debug）。
 
@@ -97,8 +98,7 @@ createObserver({ mode, enabled, invocationLogs, level }) → Observer
 | `dup_review` | 同 commit 已有 review（hasExistingReview） |
 | `dup_cache` | Worker 模块级缓存命中 |
 | `dup_status` | 已有 heimdall/reviewed 成功状态 |
-| `missing_api_key` | 未配置 AI 密钥 |
-| `empty_diff` | 无可审查变更 |
+| `missing_api_key` | 未配置 AI 密钥（Actions 预检；Probot/Worker 走 `llm_error`） |
 | `non_pr_event` | 非 PR 事件 |
 | `no_trigger_comment` | 评论未匹配触发词 |
 
@@ -107,8 +107,9 @@ createObserver({ mode, enabled, invocationLogs, level }) → Observer
 | reason | 含义 |
 | --- | --- |
 | `llm_error` | LLM 调用失败（HTTP 状态、缺 key、超时） |
-| `parse_failed` | 结构化解析失败，降级为整体报告 |
 | `post_inline_failed` | 行内评论发布失败，降级为整体报告 |
+
+> 解析失败（`parse_failed`）不走 `review.error`，而是 `warn` 级的 `review.parse`（`status: fallback`）。
 
 ### 5.4 调用摘要 `review.invocation`
 
