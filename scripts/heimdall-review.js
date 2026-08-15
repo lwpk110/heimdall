@@ -45,6 +45,12 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加德彩�
 6. 可维护性：命名、结构、重复代码、违背现有模式、可测试性、可读性
 7. 变更完整性：新增功能是否缺测试、破坏性变更是否有迁移/兼容处理、文档是否同步
 
+【必须检查的硬规则】（命中即报 critical 或 important，即使未被上面维度显式覆盖）
+1. 客户端/外部输入的派生字段被服务端信任：如直接比较客户端传来的 passwordHash、信任客户端提供的 role/id/isAdmin——必须指出并建议按标识重新加载权威数据校验（这是越权/认证绕过的常见根因）
+2. 硬编码密钥 / 凭据 / 密码
+3. SQL / 命令 / 模板注入（字符串拼接用户输入）
+4. 敏感信息（密钥、token、密码）输出到日志、响应或前端
+
 【输出质量要求】
 - summary（变更概述）：概括 PR 目的、主要改动、影响面与潜在风险，并给出建议的验证方式（如建议补充的测试、需要重点回归的点）
 - issues 每条包含：
@@ -261,6 +267,7 @@ async function main() {
     return;
   }
   const filtered = filterByMinSeverity(result, repoConfig.min_severity);
+  filtered.issues = validateIssueLines(filtered.issues, reviewable);
 
   // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
   if (repoConfig.block_on_critical) {
@@ -419,6 +426,37 @@ function filterByMinSeverity(result, minSeverity) {
   if (!minSeverity) return result;
   const min = SEVERITY_RANK[minSeverity];
   return { summary: result.summary, issues: result.issues.filter((i) => SEVERITY_RANK[i.severity] >= min) };
+}
+
+// 解析 diff patch，返回新增行行号集合，用于校验 LLM 行号
+function parsePatchLines(patch) {
+  const lines = new Set();
+  let newLine = 0;
+  for (const raw of String(patch).split("\n")) {
+    const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (m) {
+      newLine = Number(m[2]);
+      continue;
+    }
+    if (raw.startsWith("+") && !raw.startsWith("+++")) {
+      lines.add(newLine);
+      newLine++;
+    } else if (raw.startsWith("-") && !raw.startsWith("---")) {
+      // 删除行
+    } else if (raw.startsWith("\\")) {
+      // no newline 标记
+    } else {
+      newLine++;
+    }
+  }
+  return lines;
+}
+
+// 行号不在 diff 新增行集合中的 issue 归 0（只进报告，不生成行内评论）
+function validateIssueLines(issues, files) {
+  const valid = new Map();
+  for (const f of files) if (f.patch) valid.set(f.filename, parsePatchLines(f.patch));
+  return issues.map((i) => (i.line > 0 && valid.get(i.file) && valid.get(i.file).has(i.line) ? i : { ...i, line: 0 }));
 }
 
 async function postReviewWithComments(body, comments) {

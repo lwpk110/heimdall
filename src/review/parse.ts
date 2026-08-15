@@ -131,3 +131,42 @@ export function renderMarkdown(result: ReviewResult): string {
 function indentDiff(diff: string): string[] {
   return diff.split("\n").map((line) => (line ? "  " + line : "  "));
 }
+
+/** 解析 diff patch，返回新增行（+ 行）的新文件行号集合，用于校验 LLM 给出的行号 */
+export function parsePatchLines(patch: string): Set<number> {
+  const lines = new Set<number>();
+  let newLine = 0;
+  for (const raw of patch.split("\n")) {
+    const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (m) {
+      newLine = Number(m[2]);
+      continue;
+    }
+    if (raw.startsWith("+") && !raw.startsWith("+++")) {
+      lines.add(newLine);
+      newLine++;
+    } else if (raw.startsWith("-") && !raw.startsWith("---")) {
+      // 删除行不推进新行号
+    } else if (raw.startsWith("\\")) {
+      // "\ No newline at end of file" 标记
+    } else {
+      newLine++;
+    }
+  }
+  return lines;
+}
+
+/** 校验 issue 行号：不在 diff 新增行集合中的 line 归 0（只进报告，不生成行内评论） */
+export function validateIssueLines(
+  issues: ReviewIssue[],
+  files: Array<{ filename: string; patch?: string }>
+): ReviewIssue[] {
+  const validLines = new Map<string, Set<number>>();
+  for (const f of files) {
+    if (f.patch) validLines.set(f.filename, parsePatchLines(f.patch));
+  }
+  return issues.map((i) => {
+    if (i.line > 0 && validLines.get(i.file)?.has(i.line)) return i;
+    return { ...i, line: 0 };
+  });
+}
