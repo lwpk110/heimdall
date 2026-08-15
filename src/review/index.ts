@@ -158,7 +158,11 @@ async function postInlineReview(target: ReviewTarget, stats: DiffStats, result: 
       path: i.file,
       line: i.line,
       side: "RIGHT" as const,
-      body: `**${severityLabel(i.severity)}** ${i.comment}${i.suggestion ? `\n\n> 💡 建议：${i.suggestion}` : ""}`,
+      body: [
+        `**${severityLabel(i.severity)}** ${i.comment}`,
+        i.suggestion ? `\n> 💡 建议：${i.suggestion}` : "",
+        i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
+      ].join(""),
     }));
 
   if (comments.length === 0) {

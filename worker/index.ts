@@ -169,12 +169,29 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
   // 2. 调用 LLM 生成审查报告
   let report: string;
   let criticalCount = 0;
+  let inlineComments: Array<{ path: string; line: number; side: string; body: string }> = [];
   try {
     const raw = await generateReview(env, diff, systemPrompt);
     const parsed = parseReview(raw);
     const filtered = parsed ? filterByMinSeverity(parsed, repoConfig.min_severity) : null;
     criticalCount = filtered ? filtered.issues.filter((i) => i.severity === "critical").length : 0;
-    report = filtered ? renderReport(stats, renderMarkdown(filtered)) : renderReport(stats, raw);
+    if (filtered) {
+      report = renderReport(stats, renderMarkdown(filtered));
+      inlineComments = filtered.issues
+        .filter((i) => i.line > 0)
+        .map((i) => ({
+          path: i.file,
+          line: i.line,
+          side: "RIGHT",
+          body: [
+            `${severityLabel(i.severity)} ${i.comment}`,
+            i.suggestion ? `\n> 💡 建议：${i.suggestion}` : "",
+            i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
+          ].join(""),
+        }));
+    } else {
+      report = renderReport(stats, raw);
+    }
   } catch (err) {
     report = renderReport(stats, `⚠️ 审查失败：${err instanceof Error ? err.message : String(err)}`);
   }
@@ -192,8 +209,21 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     });
   }
 
-  // 3. 以 Review 形式回写 PR
-  await postReview(gh, owner, repo, pullNumber, report);
+  // 3. 以 Review 形式回写 PR（整体报告 + 行内评论）
+  await postReview(gh, owner, repo, pullNumber, report, inlineComments);
+}
+
+function severityLabel(severity: string): string {
+  switch (severity) {
+    case "critical":
+      return "🔴";
+    case "important":
+      return "🟡";
+    case "normal":
+      return "🟢";
+    default:
+      return "";
+  }
 }
 
 async function loadRepoConfig(gh: (path: string, options?: { method?: string; body?: unknown }) => Promise<Response>, owner: string, repo: string): Promise<RepoConfig> {
@@ -264,11 +294,14 @@ async function postReview(
   owner: string,
   repo: string,
   pullNumber: number,
-  body: string
+  body: string,
+  comments?: Array<{ path: string; line: number; side: string; body: string }>
 ): Promise<void> {
+  const payload: Record<string, unknown> = { event: "COMMENT", body };
+  if (comments && comments.length > 0) payload.comments = comments;
   const res = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/reviews`, {
     method: "POST",
-    body: { event: "COMMENT", body },
+    body: payload,
   });
   if (!res.ok) throw new Error(`发布 review 失败：${res.status} ${await res.text()}`);
 }
