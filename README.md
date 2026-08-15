@@ -190,6 +190,29 @@ AI_MODEL=claude-sonnet-5       # 你的网关支持的模型 ID
 
 ---
 
+## 配置开关速查
+
+想开某个能力？直接看这张表（「在哪设置」= 环境变量 / GitHub Actions Variable / `.github/heimdall.yml`）：
+
+| 想开启的能力 | 开关 / 参数 | 在哪设置 |
+| --- | --- | --- |
+| **PR 打开自动审核**（默认是仅按需）| `auto_review: true` | `.github/heimdall.yml` |
+| 手动触发审查 | PR 评论 `@CoderHeimdall` | 默认，无需配置 |
+| 选择 AI 提供方 | `AI_PROVIDER = anthropic \| openai \| gemini` | 环境变量 / Actions Variable |
+| 选择模型 | `AI_MODEL = <模型 ID>` | 环境变量 / Actions Variable / `wrangler.toml [vars]` |
+| 走代理网关 / 本地模型 | `AI_BASE_URL = https://<网关>` | 环境变量 / Actions Variable |
+| 提供方专属 base_url | `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL` | 环境变量 / Actions Variable |
+| diff 长度上限 | `MAX_DIFF_LENGTH`（默认 40000）| 环境变量 / `wrangler.toml [vars]` |
+| 只审查某些文件 | `include: ["*.ts", ...]` | `.github/heimdall.yml` |
+| 排除某些文件 | `exclude: ["**/generated/**", ...]` | `.github/heimdall.yml` |
+| 只显示 ≥ 某严重度 | `min_severity: important` | `.github/heimdall.yml` |
+| 团队自定义审查指令 | `instructions: \| ...` | `.github/heimdall.yml` |
+| 限制谁能手动触发 | `manual_reviewers: [octocat]` | `.github/heimdall.yml` |
+| **有严重问题就阻止合并** | `block_on_critical: true`（+ 分支保护加 `heimdall/critical` 检查）| `.github/heimdall.yml` + GitHub 分支保护 |
+| 关闭自动、纯按需 | 不配置 `auto_review`（默认即仅按需）| — |
+
+> 环境变量：自托管 `.env` / Worker 用 `wrangler secret put` 或 `[vars]` / Actions 用 Secrets + Variables。
+
 ## 配置文件 `.github/heimdall.yml`（可选）
 
 在被审查仓库放一个 `.github/heimdall.yml` 即可定制审查，配置随仓库版本化：
