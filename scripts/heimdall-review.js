@@ -11,6 +11,7 @@
 "use strict";
 
 const fs = require("fs");
+const { createObserver, resolveObserverOptions, applyLogOverrides, newReviewId } = require("./observability");
 
 const {
   GITHUB_TOKEN,
@@ -33,6 +34,23 @@ const {
 const LANGUAGE = ["en", "zh", "bilingual"].includes((REVIEW_LANGUAGE || "").toLowerCase())
   ? (REVIEW_LANGUAGE || "").toLowerCase()
   : "en";
+
+/** 创建一次审查的 observer（上下文：repo/pr/trigger） */
+function makeObserver(trigger) {
+  return createObserver(resolveObserverOptions("actions", process.env)).child({
+    repo: GITHUB_REPOSITORY,
+    pr: pr.number,
+    reviewId: newReviewId(),
+    trigger,
+  });
+}
+
+/** 预检阶段的跳过事件（进程将退出，用临时 observer 打一行） */
+function emitSkip(reason, msg, extra) {
+  createObserver(resolveObserverOptions("actions", process.env))
+    .child({ repo: GITHUB_REPOSITORY, reviewId: newReviewId(), trigger: "unknown" })
+    .invocation("review.skip", msg, Object.assign({ reason }, extra));
+}
 
 function buildSystemPrompt(language = LANGUAGE) {
   const directive = {
@@ -129,17 +147,17 @@ const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
 // pull_request 事件与 issue_comment（PR 评论 @heimdall review）事件都支持
 const pr = event.pull_request || (event.issue?.pull_request ? { number: event.issue.number } : null);
 if (!pr) {
-  console.log("非 PR 事件，跳过");
+  emitSkip("non_pr_event", "非 PR 事件，跳过");
   process.exit(0);
 }
 if (event.issue) {
   const body = event.comment?.body ?? "";
   if (!/@(?:coder)?heimdall(?:\s+review)?\b/i.test(body)) {
-    console.log("非触发评论，跳过");
+    emitSkip("no_trigger_comment", "非触发评论，跳过");
     process.exit(0);
   }
   if (event.comment?.user?.type === "Bot") {
-    console.log("机器人评论，跳过");
+    emitSkip("bot_pr", "机器人评论，跳过");
     process.exit(0);
   }
 }
@@ -157,7 +175,7 @@ const requiredKey =
       : ANTHROPIC_API_KEY);
 if (!requiredKey) {
   const keyName = AI_API_KEY ? "AI_API_KEY" : provider === "openai" ? "OPENAI_API_KEY" : provider === "gemini" ? "GEMINI_API_KEY" : "ANTHROPIC_API_KEY";
-  console.log(`海姆达尔：未配置 ${keyName}，本次跳过审查。`);
+  emitSkip("missing_api_key", `未配置 ${keyName}，本次跳过审查`, { key: keyName });
   console.log("提示：请在仓库 Settings → Secrets and variables → Actions 添加对应密钥后启用。");
   process.exit(0);
 }
@@ -320,15 +338,20 @@ async function postReview(body) {
 }
 
 async function main() {
+  let obs = makeObserver(event.issue ? "manual" : "auto");
+  const reviewSpan = obs.start();
+  obs.info("review.start", "开始审查");
+
   // 1. 读取配置、diff 与变更统计
   const repoConfig = await loadRepoConfig();
+  obs = applyLogOverrides(obs, repoConfig.observability && repoConfig.observability.logs);
   if (event.issue && !isAllowedManualReviewer(repoConfig.manual_reviewers, event.comment?.user?.login)) {
-    console.log("海姆达尔：评论者不在 manual_reviewers 白名单，忽略触发");
+    obs.invocation("review.skip", "评论者不在 manual_reviewers 白名单，忽略触发", { reason: "reviewer_not_whitelisted", author: event.comment?.user?.login });
     return;
   }
   // 默认仅按需审查：auto_review 未显式设为 true 时，PR 事件跳过自动审查（仅 @CoderHeimdall 触发）
   if (!event.issue && repoConfig.auto_review !== true) {
-    console.log("海姆达尔：默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）");
+    obs.invocation("review.skip", "默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）", { reason: "not_auto_review" });
     return;
   }
   // 同 commit 去重：自动或手动触发时，该 commit 已审查过则跳过，避免重复审查刷屏
@@ -338,16 +361,17 @@ async function main() {
       const prData = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}`);
       headSha = prData.head?.sha;
     } catch (err) {
-      console.log("海姆达尔：获取 PR head 失败，跳过去重：", err.message);
+      obs.warn("review.skip", "获取 PR head 失败，跳过去重", { reason: "head_fetch_failed", detail: err.message });
     }
   }
+  if (headSha) obs = obs.child({ sha: headSha });
   if (headSha) {
     const existing = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/reviews?per_page=100`);
     const reviewed = existing.some(
       (r) => r.commit_id === headSha && (r.body || "").includes("海姆达尔")
     );
     if (reviewed) {
-      console.log("海姆达尔：该 commit 已审查过，跳过重复审查");
+      obs.invocation("review.skip", "该 commit 已审查过，跳过重复审查", { reason: "dup_review" });
       return;
     }
   }
@@ -355,10 +379,11 @@ async function main() {
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
   const diff = formatSafeDiff(reviewable, Number(MAX_DIFF_LENGTH));
+  obs.debug("review.diff", "读取变更", { files: stats.files, additions: stats.additions, deletions: stats.deletions, diffBytes: diff.length });
 
   if (!diff.trim()) {
     await postReview(renderReport(stats, "", undefined, LANGUAGE, LABELS[LANGUAGE]?.noChange));
-    console.log("海姆达尔：无可审查变更");
+    obs.invocation("review.invocation", "无可审查变更", { outcome: "empty", durationMs: reviewSpan.elapsed() });
     return;
   }
 
@@ -367,30 +392,39 @@ async function main() {
     : buildSystemPrompt(LANGUAGE);
 
   // 2. 调用 LLM
+  const llmSpan = obs.start();
   let rawReport;
+  let outcome = "posted";
   try {
     rawReport = await generateReview(diff, systemPrompt);
+    llmSpan.finish("llm.done", { provider, model: AI_MODEL, status: "ok" });
   } catch (err) {
+    outcome = "failed";
+    obs.error("review.error", `LLM 调用失败：${err.message}`, { reason: "llm_error", provider, model: AI_MODEL, durationMs: llmSpan.elapsed() });
     await postReview(renderReport(stats, `⚠️ ${LABELS[LANGUAGE]?.reviewFailed}：${err.message}`, undefined, LANGUAGE));
-    console.error("审查失败：", err.message);
+    obs.invocation("review.invocation", "审查失败", { outcome: "failed", reason: "llm_error", durationMs: reviewSpan.elapsed() });
     process.exit(1);
   }
 
   // 3. 解析结构化结果，行内评论失败时降级为整体报告
   const result = parseReview(rawReport);
   if (!result) {
-    console.log("海姆达尔：结构化解析失败，降级为整体报告");
+    outcome = "parse_fallback";
+    obs.warn("review.parse", "结构化解析失败，降级为整体报告", { status: "fallback" });
     await postReview(renderReport(stats, rawReport, undefined, LANGUAGE));
+    obs.invocation("review.invocation", "解析失败，降级为整体报告", { outcome: "parse_fallback", durationMs: reviewSpan.elapsed() });
     return;
   }
+  obs.info("review.parse", "审查结果解析成功", { status: "ok", issues: result.issues.length });
   const filtered = filterByMinSeverity(result, repoConfig.min_severity);
   filtered.issues = validateIssueLines(filtered.issues, reviewable);
+  const counts = { critical: 0, important: 0, normal: 0 };
+  for (const i of filtered.issues) counts[i.severity]++;
 
   // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
   if (repoConfig.block_on_critical) {
     if (headSha) {
-      const criticalCount = filtered.issues.filter((i) => i.severity === "critical").length;
-      await setCriticalStatus(headSha, criticalCount);
+      await setCriticalStatus(headSha, counts.critical);
     }
   }
 
@@ -419,7 +453,7 @@ async function main() {
     try {
       await postReviewWithComments(body, comments);
     } catch (err) {
-      console.error("行内评论发布失败，降级为整体报告：", err.message);
+      obs.error("review.error", `行内评论发布失败，降级为整体报告：${err.message}`, { reason: "post_inline_failed" });
       await postReview(body);
     }
   }
@@ -436,7 +470,8 @@ async function main() {
     }
   }
 
-  console.log("海姆达尔审查完成");
+  obs.info("review.post", "审查已发布", counts);
+  obs.invocation("review.invocation", "审查完成", { outcome: "posted", durationMs: reviewSpan.elapsed(), ...counts });
 }
 
 async function loadRepoConfig() {
@@ -450,48 +485,69 @@ async function loadRepoConfig() {
 }
 
 function parseHeimdallConfig(text) {
-  const cfg = {};
   const lines = text.split(/\r?\n/);
-  let i = 0;
+  const parsed = parseObject(lines, 0, -1);
+  return parsed.value || {};
+}
+
+function lineIndent(line) {
+  const m = /^(\s*)\S/.exec(line);
+  return m ? m[1].length : -1;
+}
+
+function parseObject(lines, start, parentIndent) {
+  const obj = {};
+  let i = start;
   while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
+    const trimmed = lines[i].trim();
     if (!trimmed || trimmed.startsWith("#")) { i++; continue; }
+    const indent = lineIndent(lines[i]);
+    if (indent <= parentIndent) break;
     const match = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(trimmed);
     if (!match) { i++; continue; }
     const key = match[1];
     const rest = match[2].trim();
+    i++;
 
     if (rest === "|") {
       const block = [];
-      i++;
-      while (i < lines.length && lines[i].startsWith(" ") && lines[i].trim() !== "") {
+      while (i < lines.length && lines[i].trim() !== "" && lineIndent(lines[i]) > indent) {
         block.push(lines[i].replace(/^\s+/, ""));
         i++;
       }
-      if (block.length) cfg[key] = block.join("\n");
+      if (block.length) obj[key] = block.join("\n");
       continue;
     }
     if (rest.startsWith("[")) {
       const inner = rest.slice(1, rest.lastIndexOf("]"));
-      cfg[key] = inner.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
-      i++;
+      obj[key] = inner.split(",").map((s) => s.trim().replace(/^["']|["']$/g, "")).filter(Boolean);
       continue;
     }
     if (rest === "") {
-      const items = [];
-      i++;
-      while (i < lines.length && /^\s*-/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
-        i++;
+      if (i < lines.length) {
+        const nIndent = lineIndent(lines[i]);
+        if (nIndent > indent && /^\s*-/.test(lines[i])) {
+          const items = [];
+          while (i < lines.length && lineIndent(lines[i]) > indent && /^\s*-/.test(lines[i])) {
+            items.push(lines[i].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
+            i++;
+          }
+          obj[key] = items;
+          continue;
+        }
+        if (nIndent > indent && /^[A-Za-z_][\w-]*:/.test(lines[i].trim())) {
+          const sub = parseObject(lines, i, indent);
+          obj[key] = sub.value;
+          i = sub.next;
+          continue;
+        }
       }
-      if (items.length) cfg[key] = items; else i++;
+      obj[key] = undefined;
       continue;
     }
-    cfg[key] = parseScalar(rest);
-    i++;
+    obj[key] = parseScalar(rest);
   }
-  return cfg;
+  return { value: obj, next: i };
 }
 
 function parseScalar(raw) {

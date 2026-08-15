@@ -1,5 +1,6 @@
 import { Probot } from "probot";
-import { runReview } from "./review";
+import { createObserver, newReviewId, resolveObserverOptions } from "./observability";
+import { applyRepoObservability, runReview } from "./review";
 import { loadRepoConfigFromOctokit } from "./review/repo-config";
 
 export function createApp(app: Probot): void {
@@ -8,15 +9,33 @@ export function createApp(app: Probot): void {
     async (context) => {
       const pr = context.payload.pull_request;
 
+      const obs = createObserver(resolveObserverOptions("probot", process.env)).child({
+        repo: `${pr.base.repo.owner.login}/${pr.base.repo.name}`,
+        pr: pr.number,
+        sha: pr.head?.sha,
+        reviewId: newReviewId(),
+        trigger: "auto",
+      });
+
       // 跳过草稿 PR 与机器人发起的 PR，避免干扰
-      if (pr.draft) return;
-      if (pr.user?.type === "Bot") return;
+      if (pr.draft) {
+        obs.invocation("review.skip", "草稿 PR，跳过审查", { reason: "draft_pr" });
+        return;
+      }
+      if (pr.user?.type === "Bot") {
+        obs.invocation("review.skip", "机器人发起的 PR，跳过审查", { reason: "bot_pr" });
+        return;
+      }
 
       const owner = pr.base.repo.owner.login;
       const repo = pr.base.repo.name;
       const repoConfig = await loadRepoConfigFromOctokit(context.octokit, owner, repo);
       if (repoConfig.auto_review !== true) {
-        console.log("海姆达尔：默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）");
+        applyRepoObservability(obs, repoConfig).invocation(
+          "review.skip",
+          "默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）",
+          { reason: "not_auto_review" }
+        );
         return;
       }
 
@@ -40,9 +59,19 @@ export function createApp(app: Probot): void {
 
     const owner = payload.repository.owner.login;
     const repo = payload.repository.name;
+    const obs = createObserver(resolveObserverOptions("probot", process.env)).child({
+      repo: `${owner}/${repo}`,
+      pr: payload.issue.number,
+      reviewId: newReviewId(),
+      trigger: "manual",
+    });
     const repoConfig = await loadRepoConfigFromOctokit(context.octokit, owner, repo);
     if (!isAllowedManualReviewer(repoConfig.manual_reviewers, payload.comment?.user?.login)) {
-      console.log(`海姆达尔：@${payload.comment?.user?.login} 不在 manual_reviewers 白名单，忽略触发`);
+      applyRepoObservability(obs, repoConfig).invocation(
+        "review.skip",
+        `@${payload.comment?.user?.login} 不在 manual_reviewers 白名单，忽略触发`,
+        { reason: "reviewer_not_whitelisted", author: payload.comment?.user?.login }
+      );
       return;
     }
 

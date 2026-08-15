@@ -17,6 +17,7 @@ Core selling point: **model freedom** — supports Claude / GPT / Gemini / local
 
 | Path | Role |
 | --- | --- |
+| `src/observability.ts` | **JSON-lines observability module** (structured logs; Worker imports it; mirrored to `scripts/observability.js`) |
 | `src/review/prompt.ts` | **Heimdall persona prompt (single source)** — quality core; Worker imports it directly; changes must sync the `scripts/heimdall-review.js` copy |
 | `src/review/parse.ts` | LLM JSON parse + report render + loose-JSON tolerance + dedup + **labels (en/zh/bilingual)** |
 | `src/review/providers.ts` | AI providers (anthropic / openai / gemini + local) |
@@ -25,6 +26,7 @@ Core selling point: **model freedom** — supports Claude / GPT / Gemini / local
 | `src/app.ts` | Probot event subscriptions (PR events + `@CoderHeimdall`) |
 | `worker/index.ts` | Cloudflare Worker (webhook, signature, dedup, review, status marks) |
 | `scripts/heimdall-review.js` | Actions-mode script (zero-dep, copied to target repo) |
+| `scripts/observability.js` | Actions-mode observability mirror (CommonJS, copied with heimdall-review.js) |
 | `template/heimdall-review.yml` | Actions-mode workflow (copied to target repo) |
 | `test/` | Unit tests (node:test) |
 
@@ -41,11 +43,12 @@ npm run worker:deploy # deploy Worker
 ## Core Conventions (read before changing code)
 
 1. **Three modes share one core**: changes under `src/review/` apply to the Worker automatically (imported modules); `scripts/heimdall-review.js` is a **separate copy** — sync prompt/parse/render changes.
-2. **Prompt is the single source**: `src/review/prompt.ts`. Quality is driven by it; change carefully + add tests.
-3. **Default on-demand**: unset `auto_review` = no auto review; `@CoderHeimdall` only.
-4. **Triple dedup**: `hasExistingReview` (review query) + `heimdall/reviewed` commit status (needs App `statuses` perm) + Worker module cache.
-5. **Cloudflare gotchas**: explicit `import { Buffer }`; GitHub API needs `User-Agent`; free `waitUntil` 30s (use `thinking: { type: "disabled" }`).
-6. **Report language**: `REVIEW_LANGUAGE` = `en` (default) / `zh` / `bilingual`; labels in `src/review/parse.ts`.
+2. **Observability mirror**: `src/observability.ts` (TS) and `scripts/observability.js` (CommonJS) are the same logic — keep them in sync when changing the observer API/events.
+3. **Prompt is the single source**: `src/review/prompt.ts`. Quality is driven by it; change carefully + add tests.
+4. **Default on-demand**: unset `auto_review` = no auto review; `@CoderHeimdall` only.
+5. **Triple dedup**: `hasExistingReview` (review query) + `heimdall/reviewed` commit status (needs App `statuses` perm) + Worker module cache.
+6. **Cloudflare gotchas**: explicit `import { Buffer }`; GitHub API needs `User-Agent`; free `waitUntil` 30s (use `thinking: { type: "disabled" }`).
+7. **Report language**: `REVIEW_LANGUAGE` = `en` (default) / `zh` / `bilingual`; labels in `src/review/parse.ts`.
 
 ## Report Structure (rendered by parse.ts)
 

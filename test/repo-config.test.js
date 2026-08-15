@@ -109,3 +109,23 @@ manual_reviewers:
   assert.equal(cfg.min_severity, "important");
   assert.deepEqual(cfg.manual_reviewers, ["octocat", "steven"]);
 });
+
+test("parseHeimdallConfig：observability 嵌套块", () => {
+  const yaml = `observability:
+  logs:
+    enabled: false
+    invocation_logs: true`;
+  const cfg = parseHeimdallConfig(yaml);
+  assert.equal(cfg.observability.logs.enabled, false);
+  assert.equal(cfg.observability.logs.invocation_logs, true);
+});
+
+test("parseHeimdallConfig：observability 与其它键混排", () => {
+  const yaml = `auto_review: true
+observability:
+  logs:
+    enabled: false`;
+  const cfg = parseHeimdallConfig(yaml);
+  assert.equal(cfg.auto_review, true);
+  assert.equal(cfg.observability.logs.enabled, false);
+});

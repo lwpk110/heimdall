@@ -1,6 +1,6 @@
 # 海姆达尔 (Heimdall) — GitHub Actions 模式
 # 复制本文件到「被审查的仓库」的 .github/workflows/ 目录，
-# 并将 scripts/heimdall-review.js 一并复制到该仓库 scripts/ 目录。
+# 并将 scripts/heimdall-review.js 与 scripts/observability.js 一并复制到该仓库 scripts/ 目录。
 name: Heimdall Code Review
 
 on:
