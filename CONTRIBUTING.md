@@ -1,58 +1,59 @@
 # Contributing
 
-Welcome! Thanks for helping improve Heimdall. Please read this before opening a PR.
+Welcome to Heimdall. This file defines the collaboration workflow — please read before opening a PR.
 
-## Dev Setup
+## Development Environment
 
 ```bash
 git clone https://github.com/lwpk110/heimdall.git
 cd heimdall
 npm install
-npm test                 # build + unit tests
+npm run build     # TypeScript strict-mode compile, must pass
 ```
 
 ## Branch Strategy
 
-- `main` is protected — no direct pushes; all changes go through PRs.
-- Suggested prefixes:
+- `main` is protected; no direct pushes. All changes go through a Pull Request.
+- Suggested branch naming:
 
 | Type | Prefix | Example |
 | --- | --- | --- |
 | Feature | `feat/` | `feat/inline-comments` |
 | Bug fix | `fix/` | `fix/build-typescript` |
 | Refactor | `refactor/` | `refactor/review-pipeline` |
-| Docs / process | `chore/` | `chore/dev-workflow` |
+| Docs / flow | `chore/` | `chore/dev-workflow` |
 | Build / deps | `build/` | `build/ci-setup` |
 
-## Commit Convention
+## Commit Message Convention
 
-Conventional Commits (EN or CN):
+Use Conventional Commits (English by default):
 
 ```
 <type>(<scope>): <subject>
+
 <type>: feat | fix | refactor | chore | docs | build | test
 ```
 
 Example: `feat(review): add inline comments with diff suggestions`
 
-## Dev Iteration Flow
+## Development Loop
 
-1. Claim an Issue from the roadmap (or create one) and self-assign.
+1. Claim an Issue (or create one) and assign yourself.
 2. Branch from `main`: `git checkout -b feat/xxx main`.
-3. Commit following the convention above.
-4. Push, open a PR, reference the issue with `Closes #<issue>`.
-5. Wait for CI (build + tests) and at least 1 review.
-6. Merge, then delete the branch.
+3. Develop on the branch; commits follow the convention above.
+4. Push the branch, open a PR, link the Issue with `Closes #<issue>`.
+5. Wait for CI (build + unit tests) to pass and at least one review.
+6. Merge after review; delete the branch.
 
-## Code Standards
+## Code Conventions
 
-- TypeScript `strict`; no `any` (annotate if truly necessary).
-- Core review logic lives in `src/review/` — shared by all three deployment modes.
-- The Heimdall persona prompt's **single source** is `src/review/prompt.ts` (shared by Worker); the Actions copy in `scripts/heimdall-review.js` must be kept in sync.
-- Changes to `template/heimdall-review.yml`, the Worker, or the prompt must update the corresponding README section.
+- TypeScript `strict` mode; no `any` (comment if genuinely necessary).
+- Core review logic lives in `src/review/`; all three deployment modes share it.
+- The persona prompt's single source is `src/review/prompt.ts` (imported by the Worker); the Actions script (`scripts/heimdall-review.js`) keeps a copy that must stay in sync.
+- Changes to `template/heimdall-review.yml`, the Worker, or the prompt must be reflected in the README.
 
 ## Testing & Verification
 
-- Run `npm test` (build + unit tests, zero-dep `node:test`) before committing.
-- Add `test/` unit tests for review-core changes.
-- For GitHub Actions mode changes, verify with a real PR in a test repo.
+- Run `npm test` (build + unit tests, `node:test`, zero-dep) before committing.
+- Add/update unit tests in `test/` for review-core changes.
+- For Actions-mode changes, open a test PR in a scratch repo to observe the review.

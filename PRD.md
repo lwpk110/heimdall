@@ -1,210 +1,172 @@
 # Heimdall (海姆达尔) — Product Requirements Document (PRD)
 
-| Field | Value |
+| Item | Value |
 | --- | --- |
-| Product | 海姆达尔 (Heimdall) |
-| Version | v0.1 (draft) |
+| Product | Heimdall (海姆达尔) |
+| Version | v1.0 (draft) |
 | Date | 2026-08 |
-| Status | Delivered (M1–M4) |
-| Positioning | An open-source, self-hostable alternative to GitHub Copilot Code Review |
+| Status | Released (M1–M4 delivered) |
+| Positioning | Open, self-hostable alternative to GitHub Copilot Code Review |
 
 ---
 
 ## 1. Mission
 
-**One-liner**: Heimdall is an AI code review bot with the persona of the Bifrost guardian — an open-source, self-hostable alternative to GitHub Copilot Code Review, with **free model choice, private deployment, and deep review customization**.
+**One-liner:** Heimdall is an AI code review bot with the persona of the guardian of Asgard's Bifrost bridge — model-agnostic, privately deployable, and deeply customizable.
 
-**Problems it solves**:
-1. **Manual review is expensive**: high-quality review depends on senior engineers; small teams let PRs pile up.
-2. **Copilot's limits**: Copilot Code Review uses only GitHub's models, per-seat billing, and sends code through Microsoft's cloud; teams can't pick a model (e.g. Claude) or keep code on their own servers.
-3. **Inconsistent standards**: no shared, executable review rules across a team.
+**Problems solved:**
+1. **High cost of human review** — small teams have no dedicated reviewer; PRs pile up.
+2. **Copilot's limitations** — Copilot Code Review locks you into GitHub's model, per-seat pricing, and Microsoft cloud; teams can't pick Claude or keep code on their own infra.
+3. **Inconsistent review standards** — no executable, shared review rules per team.
 
-**Form**: a code review bot with dual deployment — **GitHub Actions** (per-repo, zero server) and **Cloudflare Workers** (GitHub App backend, serverless, distributable) — plus self-hosted Probot/Docker. All modes share one review core: read PR diff → call LLM → post as a GitHub Review.
+**Form:** A review bot with three deployment modes — **GitHub Actions** (per-repo, zero server), **Cloudflare Workers** (serverless, installable as a GitHub App), and **Probot/Docker self-hosting** (code never leaves the intranet). All three share one review core: read PR diff → call LLM → post a GitHub Review.
 
-**Target users**: individual devs & OSS maintainers; small-to-mid teams; privacy/compliance-sensitive teams.
+**Target users:** individual devs / OSS maintainers, small/medium teams, privacy-sensitive teams.
 
-**Non-goals (v1)**: no code generation/auto-fix; no IDE inline hints; no CI-external static analysis engine.
-
----
+**Non-goals (v1):** no code generation or auto-fixing; no IDE inline hints; no static-analysis engine beyond review.
 
 ## 2. Concept
 
 ### 2.1 Persona
-Heimdall — the Bifrost guardian from Norse myth/Marvel — "sees everything in the Nine Realms, including every problem in your code." Reports use a fixed three-part structure: 🔴 Critical / 🟡 Improvement / 🟢 Good practice, in a terse, direct tone.
+Named after **Heimdall**, the guardian of the Bifrost bridge — sees everything, guards the gate. Every PR must pass his bridge before merge. Reports use a fixed three-section tone (Critical / Improvements / Good practices), direct and no fluff.
 
-### 2.2 Differentiation vs Copilot Code Review
+### 2.2 Differentiation from Copilot Code Review
 
 | Dimension | Copilot Code Review | Heimdall |
 | --- | --- | --- |
-| Models | GitHub's only | Claude / GPT / Gemini / local (free choice) |
-| Deployment | Microsoft cloud | Self-hosted / private, code stays on your infra |
-| Billing | Per-seat subscription | Per-API-usage, no seats |
-| Rules | Limited config | Programmable prompt + config file, versioned |
+| Model | GitHub's only | Free choice: Claude / GPT / Gemini / local |
+| Deployment | Microsoft cloud | Self-host / private; code stays on your infra |
+| Pricing | Per-seat subscription | Pay for what you use (your API key) |
+| Rules | Limited config | Programmable prompt + `.github/heimdall.yml` |
 | Persona | Tool-like | Heimdall persona, consistent style |
-| Open source | No | Yes |
+| Open source | No | Yes (MIT) |
 
 ### 2.3 Extensible pipeline
-Abstract "fetch → model call → parse → post back"; any stage replaceable (local models, inline comments, merge blocking).
+Abstracted as `fetch diff → call model → parse result → post back`; any stage is swappable (providers, parsing, post modes).
 
----
+## 3. Feature Scope (aligned with Copilot)
 
-## 3. Feature Scope (Copilot parity)
-
-| Capability | Priority |
-| --- | --- |
-| Auto review on PR open/new commit | P0 ✅ |
-| Overall structured review report | P0 ✅ |
-| On-demand `@CoderHeimdall` | P1 ✅ (default on-demand) |
-| Inline comments (file + line) | P1 ✅ |
-| Severity grading | P1 ✅ |
-| Change summary | P1 ✅ |
-| `.github/heimdall.yml` config (scope/exclude/custom rules) | P1 ✅ |
-| Language/file filtering | P1 ✅ |
-| Reviewer whitelist | P2 ✅ |
-| Block merge on critical | P2 ✅ |
-| Review dedup | P2 ✅ |
-| Custom prompt | P2 ✅ |
-
----
+| Capability | Priority | Status |
+| --- | --- | --- |
+| Auto review on PR open/update | P0 | ✅ |
+| Overall review report (structured) | P0 | ✅ |
+| On-demand `@CoderHeimdall` review | P1 | ✅ |
+| Inline comments (file + line) | P1 | ✅ |
+| Severity grading (critical/important/normal) | P1 | ✅ |
+| Change summary / overview | P1 | ✅ |
+| `.github/heimdall.yml` config (include/exclude/rules) | P1 | ✅ |
+| Language / file filtering | P1 | ✅ |
+| Reviewer whitelist | P2 | ✅ |
+| Block merge on unresolved critical | P2 | ✅ |
+| Review cache / dedup | P2 | ✅ |
+| Custom prompt (team instructions) | P2 | ✅ |
+| Bilingual reports (`REVIEW_LANGUAGE`) | — | ✅ |
+| Incremental review (changed parts only) | — | planned |
 
 ## 4. User Stories
 
-### 4.1 Developer
-- **US-1 Auto review**: opening a PR auto-reviews the diff, updated per commit. (M1; now default on-demand)
-- **US-2 Inline location**: findings point to the exact file+line. ✅
-- **US-3 Severity sorting**: critical first. ✅
-- **US-4 On-demand**: `@CoderHeimdall` triggers re-review; whitelist enforced. ✅
+- **US-1 Auto review**: PRs get reviewed within 60s; each new commit re-reviews (dedup by commit).
+- **US-2 Inline location**: ≥80% of critical issues map to correct file + line.
+- **US-3 Severity sort**: critical listed first.
+- **US-4 On-demand**: `@CoderHeimdall` triggers a re-review; non-whitelist ignored.
+- **US-5 Configurable rules**: `.github/heimdall.yml` versioned per repo.
+- **US-6 Block risk**: unresolved critical blocks merge via `heimdall/critical` status check.
+- **US-7 Private deploy**: fully on-prem; pluggable local model endpoint.
+- **US-8 Lower maintainer burden**: external PRs get an AI first-pass.
+- **US-9 Dual modes**: same core across Actions / Worker / self-host.
 
-### 4.2 Team lead
-- **US-5 Unified standards**: `.github/heimdall.yml` configures filters/instructions, versioned. ✅
-- **US-6 Block risk**: `block_on_critical` sets `heimdall/critical` status to block merge. ✅
+## 5. Key Flows
 
-### 4.3 Privacy/compliance
-- **US-7 Private deployment**: fully self-hosted; code never sent to third-party clouds. ✅
-
-### 4.4 OSS maintainer
-- **US-8 Low maintenance**: external PRs get an AI first pass; report doesn't block humans. ✅
-
-### 4.5 Deployment
-- **US-9 Dual mode**: same core in Actions & Workers, consistent output. ✅
-
----
-
-## 5. Functional Requirements (key flows)
-
-### 5.1 Auto-review main flow
+### 5.1 Auto review
 ```
-trigger: pull_request.opened/reopened/synchronize (or @CoderHeimdall)
-→ skip draft/bot PRs
-→ read diff (GitHub API, include/exclude filtered)
-→ assemble prompt (persona + team instructions + diff)
-→ call LLM (anthropic/openai/gemini/local, custom base_url)
-→ parse structured JSON (severity/file/line, loose tolerance)
-→ post Review (inline comments + overall report; fallback on line failure)
+trigger: pull_request opened/reopened/synchronize (or @CoderHeimdall)
+  → skip draft / bot PRs
+  → read diff (pulls.listFiles, include/exclude filter)
+  → build prompt (persona + team instructions + diff)
+  → call LLM (anthropic/openai/gemini/local)
+  → parse structured JSON (severity/file/line, loose tolerance)
+  → post Review (inline comments + overall report; fallback on line-mapping failure)
+  → (optional) heimdall/critical status → block merge
 ```
 
-### 5.2 Config `.github/heimdall.yml`
-
+### 5.2 Config (`.github/heimdall.yml`)
 ```yaml
 version: 1
-include: ["*.ts", "*.js", "*.py", "*.go"]
-exclude: ["**/generated/**", "**/*.min.js", "**/package-lock.json"]
+trigger: [on_open, on_update, manual]   # on-demand is default (auto_review)
+include: ["*.ts", "*.js"]
+exclude: ["**/generated/**"]
 min_severity: normal
-instructions: |
-  This project uses TypeScript strict mode. No `any`.
-manual_reviewers:
-  - octocat
+instructions: |-
+  No `any`. Handle errors.
 block_on_critical: true
-auto_review: true   # default is on-demand only
+manual_reviewers: [octocat]
+auto_review: true   # unset = on-demand only
 ```
 
 ### 5.3 Report format
-
 ```markdown
-## 🛡️ Heimdall · Code Review Report
-
-Change Summary: 2 files, 🟢 +214 / 🔴 -58
-| File | Change |
-| src/auth.ts | 🟢 +120 / 🔴 -30 |
-
-### 📖 Overview
-...purpose, impact, risk, suggested verification...
-
-<details><summary>🔍 Review Comments & Issues</summary>
-| Severity | Location | Issue |
-| 🔴 | `src/auth.ts:45` | Trust boundary: reload authoritative data |
-| 🟡 | `src/api.ts:88` | Use Promise.all — N+1 |
-</details>
+## Heimdall · Code Review Report
+Change Summary (+N / -M, file table)
+Overview (purpose, impact, risk, verification suggestions)
+🔍 N issues (critical X / important Y / normal Z)
+🤖 Review Comments (table) / ℹ️ Review Info (folded)
 ```
+Inline comments: actionable title + impact + `Fix Suggestion` + `diff` (+ 1-Click Suggestion).
 
----
-
-## 6. Dual Deployment
+## 6. Dual Deployment Modes
 
 | Dimension | Mode A: GitHub Actions | Mode B: Cloudflare Workers |
 | --- | --- | --- |
-| Positioning | Per-repo, zero config | Team-wide / productized |
-| Trigger | CI workflow | GitHub webhook → Worker |
-| Server | No | No (Cloudflare edge) |
+| Positioning | Per-repo, zero config | Team-wide / productized GitHub App |
+| Trigger | CI workflow | webhook → Worker |
 | GitHub App | No | Yes |
-| Install | Copy 2 files | Install GitHub App |
+| Install | Copy 2 files | Install App |
 | Cost | Free | Free tier (Pro for large diffs) |
-| Update | Per-repo copy | One deploy, all repos |
+| Code location | GitHub runners | Cloudflare edge |
+| Updates | Per-repo | One deploy, all repos |
 
-Both share one review core; only the runtime differs.
-
----
+Both share the same core (prompt / model / report format) — only the runtime differs.
 
 ## 7. Non-functional Requirements
 
 | Category | Requirement |
 | --- | --- |
-| Performance | Small PR (<500 lines) review < 60s end-to-end |
-| Cost | Diff truncation + model tier + max_tokens cap |
-| Security | Webhook signature verify; key only in env/secrets; no source logging |
-| Reliability | LLM failure → failure report, not silent drop; idempotent (no duplicate per commit) |
-| Maintainability | TS strict; modular pipeline; unit-tested core |
-
----
+| Performance | Small PR (<500 lines) reviewed <60s end-to-end |
+| Cost | Diff truncation + model tier + `MAX_DIFF_LENGTH`; thinking disabled for speed |
+| Security | Webhook signature verify; keys in env; no source-code logging |
+| Reliability | LLM failure degrades to a failure report (never silent); commit dedup; loose JSON tolerance |
+| Maintainability | TypeScript strict; modular pipeline; node:test coverage |
 
 ## 8. Success Metrics
 
-- Coverage ≥80% of non-draft PRs
-- Review latency P50 < 30s, P95 < 60s
-- ≥40% of critical comments adopted (resolved threads)
-- Critical false-positive rate < 20%
-- Custom `heimdall.yml` adoption rate
+- Review coverage ≥80% of non-draft PRs
+- P50 latency <30s, P95 <60s (small PRs)
+- ≥40% of critical comments adopted
+- Critical false-positive <20%
+- Config adoption rate
 
----
+## 9. Milestones (all delivered)
 
-## 9. Milestones
-
-| M | Version | Scope | Status |
+| Milestone | Version | Scope | Status |
 | --- | --- | --- | --- |
-| M1 | v0.1 | Auto overall review + persona prompt | ✅ Delivered |
-| M2 | v0.2 | Inline comments + severity + change summary | ✅ Delivered |
-| M3 | v0.3 | `heimdall.yml` config + filters + on-demand | ✅ Delivered |
-| M4 | v1.0 | Block merge + whitelist + dedup | ✅ Delivered |
+| M1 | v0.1 | Auto overall review + persona prompt | ✅ |
+| M2 | v0.2 | Inline comments + severity + change summary | ✅ |
+| M3 | v0.3 | heimdall.yml config + filters + on-demand | ✅ |
+| M4 | v1.0 | Block / whitelist / dedup / quality ≥85 | ✅ |
 
-**Current (2026-08)**: M1–M4 delivered; quality critic-scored ≥85. Report: bilingual (`REVIEW_LANGUAGE`), tables/folds/diff; default on-demand review; multi-provider + unified `AI_API_KEY`/`AI_BASE_URL`; triple dedup; Worker auto-deploy.
-
----
+> Current status (2026-08): M1–M4 delivered. Review quality iterated prompt v1→v8 and critic-scored ≥85. Bilingual reports (`REVIEW_LANGUAGE`), unified `AI_API_KEY`/`AI_BASE_URL`, on-demand default, triple dedup, professional template (table/folds/inline diff), Worker auto-deploy.
 
 ## 10. Risks & Mitigations
 
 | Risk | Impact | Mitigation |
 | --- | --- | --- |
-| Line mapping 422 | Inline unusable | Overall report v1; line-validation module |
-| Noise / bot fatigue | Product failure | Severity + whitelist + thresholds |
-| Uncontrolled API cost | Team abandons | Diff truncation, model tiers, on-demand |
-| Sensitive data to LLM | Compliance | Private deploy + local model endpoints |
-| Per-commit review noise | Bad UX | Triple dedup |
-| Mode inconsistency | Split UX | Shared core; documented differences |
+| LLM line-number mismatch (422) | Inline comments fail | Fallback to overall report; line validation |
+| False-positive noise | Devs ignore bot | Severity grading + min_severity + whitelist |
+| Uncontrollable API cost | Teams abandon | Diff truncation, on-demand default, model tiers |
+| Sensitive info to LLM | Compliance | Self-host + local model endpoint |
+| Per-commit re-review noise | UX | Commit dedup (triple) |
+| Mode inconsistency | Fragmented UX | Shared core + bilingual labels + docs |
 
----
+## 11. Appendix: Copilot Code Review parity
 
-## 11. Appendix: Copilot parity notes
-
-Copilot Code Review capabilities (as of writing): auto review on open, `@copilot review` trigger, inline comments by severity, change summary, repo config file, AI reviewer as a required review gate.
-
-Heimdall matches each capability, differentiated by free models, private deployment, and open-source extensibility. Deep GitHub-native integrations (e.g. the AI reviewer appearing in the reviewer dropdown) are out of scope; equivalent via `block_on_critical` status + branch protection.
+Copilot's public capabilities (auto review, `@copilot review`, inline comments by severity, change summary, repo-level config, blocking reviewer) are each matched by Heimdall, with model freedom and self-hosting as the differentiation. Tightly GitHub-bound details (e.g., AI reviewer in the reviewer dropdown) are not cloned; the equivalent "config block + status check" is used instead.
