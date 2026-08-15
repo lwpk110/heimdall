@@ -173,7 +173,8 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   });
   if (!res.ok) throw new Error(`Anthropic API 失败：${res.status} ${await res.text()}`);
   const data = await res.json();
-  return data.content?.[0]?.text || "";
+  // content 可能含 thinking 块，需取 type 为 text 的块
+  return (data.content || []).find((b) => b.type === "text")?.text || "";
 }
 
 async function postReview(body) {
