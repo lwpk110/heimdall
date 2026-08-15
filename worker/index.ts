@@ -283,19 +283,19 @@ function renderReport(stats: DiffStats, content: string): string {
   const table =
     stats.fileDetails.length > 0
       ? "\n\n| 文件 | 变更 |\n| --- | --- |\n" +
-        stats.fileDetails.map((f) => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`).join("\n")
+        stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`).join("\n")
       : "";
   const info = `
 <details>
 <summary>ℹ️ 审查信息</summary>
 
 - **审查文件**：${stats.files} 个
-- **变更规模**：+${stats.additions} / -${stats.deletions} 行
+- **变更规模**：🟢 +${stats.additions} / 🔴 -${stats.deletions} 行
 
 </details>`;
   return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。${table}
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，🟢 +${stats.additions} / 🔴 -${stats.deletions} 行。${table}
 
 ${content}
 

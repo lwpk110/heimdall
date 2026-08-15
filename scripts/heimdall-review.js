@@ -566,21 +566,27 @@ function renderMarkdown(result) {
     lines.push(`🔍 **发现 ${result.issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
   }
   lines.push("<details>", "<summary>🤖 审查评论</summary>", "");
+
+  const inlineIssues = result.issues.filter((i) => i.line > 0);
+  const orphanIssues = result.issues.filter((i) => i.line === 0);
+  if (inlineIssues.length > 0) {
+    lines.push("| 严重度 | 位置 | 问题 |", "| --- | --- | --- |");
+    for (const i of inlineIssues) {
+      lines.push(`| ${SEVERITY_ICONS[i.severity]} | \`${i.file}:${i.line}\` | ${i.comment} |`);
+    }
+    lines.push("");
+  }
   for (const sev of SEVERITIES) {
-    const group = result.issues.filter((i) => i.severity === sev);
+    const group = orphanIssues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
     lines.push(`### ${SEVERITY_LABELS[sev]}`, "");
     for (const i of group) {
-      const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
-      lines.push(`- **\`${loc}\`**：${i.comment}`);
-      // line>0 的问题详情在行内评论（避免重复）；line=0 无法行内，body 展示完整详情
-      if (i.line === 0) {
-        if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
-        if (i.diff) {
-          lines.push("", "  ```diff");
-          for (const dl of String(i.diff).split("\n")) lines.push(dl ? "  " + dl : "  ");
-          lines.push("  ```");
-        }
+      lines.push(`- **\`${i.file}\`**：${i.comment}`);
+      if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
+      if (i.diff) {
+        lines.push("", "  ```diff");
+        for (const dl of String(i.diff).split("\n")) lines.push(dl ? "  " + dl : "  ");
+        lines.push("  ```");
       }
     }
     lines.push("");
@@ -589,6 +595,8 @@ function renderMarkdown(result) {
   lines.push("</details>");
   return lines.join("\n").trim();
 }
+
+const SEVERITY_ICONS = { critical: "🔴", important: "🟡", normal: "🟢" };
 
 const SEVERITY_LABELS = {
   critical: "🔴 严重问题",
@@ -622,19 +630,19 @@ function renderReport(stats, content) {
   const table =
     stats.fileDetails && stats.fileDetails.length > 0
       ? "\n\n| 文件 | 变更 |\n| --- | --- |\n" +
-        stats.fileDetails.map((f) => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`).join("\n")
+        stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`).join("\n")
       : "";
   const info = `
 <details>
 <summary>ℹ️ 审查信息</summary>
 
 - **审查文件**：${stats.files} 个
-- **变更规模**：+${stats.additions} / -${stats.deletions} 行
+- **变更规模**：🟢 +${stats.additions} / 🔴 -${stats.deletions} 行
 
 </details>`;
   return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。${table}
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，🟢 +${stats.additions} / 🔴 -${stats.deletions} 行。${table}
 
 ${content}
 
