@@ -8,11 +8,18 @@
 
 > 📖 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-### 🥲 Why does Heimdall exist? (A story of one too many "contract changes")
+### 🥲 Why does Heimdall exist? (A story of one too many "unilateral contract changes")
 
-> Once upon a time, a certain AI assistant decided its subscription was too generous and "rebalanced" the plan — the model got weaker, the tokens got smaller, and that $10/month Code Review quota **ran out around mid-month**, right when you needed it most. By month's end you'd paid plenty, used Code Review almost never, and helped yet another earnings report.
+> It all began with a classic tale of corporate "plan optimization" —
+> 
+> One fine morning, Copilot arbitrarily revised its subscription deal: models were quietly downgraded, token limits shrank, and available choices vanished overnight. Best of all? That $10/month subscription fee was collected right on schedule, yet your Code Review quota **reliably ran out by mid-month, greeting you with: *"Quota limit reached. Please upgrade or purchase additional credits."***
+> 
+> By month's end, the math was brutal: **You paid full price, ran out of tokens half-way through the month, had zero Code Review when PRs actually hit, and successfully contributed another line-item to a tech giant's earnings report.** 🤡
 >
-> Heimdall plays no such games: **you pick the model, you control the cost, your code stays on your infra.** The Bifrost bridge is always open — no surprise contract changes.
+> **Heimdall exists to break out of this subscription trap:**
+> - **Total Model Freedom**: Want Claude 3.5 Sonnet? GPT-4o? Gemini 2.0 Flash? Or a self-hosted DeepSeek via Ollama/vLLM? It's 100% your call.
+> - **Pay-for-What-You-Use**: Use your own API key or team gateway. No more $10 "all-you-can-eat" plans that starve your quota after two weeks.
+> - **Unshakeable Bridge**: Heimdall's Bifrost Guardian never changes terms mid-flight, nor pops up mid-month paywalls.
 
 ## Features
 
