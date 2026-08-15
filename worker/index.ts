@@ -1,5 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
+import { applyLogOverrides, createObserver, newReviewId, resolveObserverOptions } from "../src/observability";
 import { formatSafeDiff, LABELS, parseReview, renderMarkdown, ReviewLanguage, ReviewResult, validateIssueLines } from "../src/review/parse";
 import { buildSystemPrompt } from "../src/review/prompt";
 import { filterByMinSeverity, filterFiles, parseHeimdallConfig, RepoConfig } from "../src/review/repo-config";
@@ -25,6 +26,9 @@ interface Env {
   AI_MODEL?: string;
   REVIEW_LANGUAGE?: string;
   MAX_DIFF_LENGTH?: string;
+  HEIMDALL_LOG_ENABLED?: string;
+  HEIMDALL_INVOCATION_LOGS?: string;
+  HEIMDALL_LOG_LEVEL?: string;
 }
 
 export default {
@@ -52,7 +56,18 @@ export default {
         return new Response("Ignored", { status: 200 });
       }
       const pr = payload.pull_request;
-      if (pr.draft || pr.user?.type === "Bot") return new Response("Ignored", { status: 200 });
+      if (pr.draft || pr.user?.type === "Bot") {
+        createObserver(resolveObserverOptions("worker", env)).child({
+          repo: `${payload.repository.owner.login}/${payload.repository.name}`,
+          pr: pr.number,
+          sha: pr.head?.sha,
+          reviewId: newReviewId(),
+          trigger: "auto",
+        }).invocation("review.skip", pr.draft ? "草稿 PR，跳过审查" : "机器人发起的 PR，跳过审查", {
+          reason: pr.draft ? "draft_pr" : "bot_pr",
+        });
+        return new Response("Ignored", { status: 200 });
+      }
       ctx.waitUntil(runWebhookReview(env, payload, pr.number, undefined, true).catch((err) => console.error("审查失败:", err)));
       return new Response("OK", { status: 200 });
     }
@@ -142,17 +157,27 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
+  let obs = createObserver(resolveObserverOptions("worker", env)).child({
+    repo: `${owner}/${repo}`,
+    pr: pullNumber,
+    reviewId: newReviewId(),
+    trigger: triggerAuthor ? "manual" : "auto",
+  });
+  const reviewSpan = obs.start();
+  obs.info("review.start", "开始审查");
+
   // 1. 读取配置与完整文件列表
   const [repoConfig, files] = await Promise.all([
     loadRepoConfig(gh, owner, repo),
     fetchAllFiles(gh, owner, repo, pullNumber),
   ]);
+  obs = applyLogOverrides(obs, repoConfig.observability?.logs);
   if (isAuto && repoConfig.auto_review !== true) {
-    console.log("海姆达尔：默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）");
+    obs.invocation("review.skip", "默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）", { reason: "not_auto_review" });
     return;
   }
   if (triggerAuthor && !isAllowedManualReviewer(repoConfig.manual_reviewers, triggerAuthor)) {
-    console.log(`海姆达尔：@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`);
+    obs.invocation("review.skip", `@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`, { reason: "reviewer_not_whitelisted", author: triggerAuthor });
     return;
   }
 
@@ -165,15 +190,16 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
       headSha = prData.head?.sha;
     }
   }
+  if (headSha) obs = obs.child({ sha: headSha });
   if (headSha && (await hasExistingReview(gh, owner, repo, pullNumber, headSha))) {
-    console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已审查过，跳过重复审查`);
+    obs.invocation("review.skip", "该 commit 已审查过，跳过重复审查", { reason: "dup_review" });
     return;
   }
   // 跨触发即时去重：模块级缓存（并发竞态缓解，无需额外权限）
   const cacheKey = `${owner}/${repo}#${pullNumber}`;
   const cached = recentReviews.get(cacheKey);
   if (headSha && cached && cached.sha === headSha && Date.now() - cached.time < REVIEW_CACHE_MS) {
-    console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 短时间内已审查，跳过`);
+    obs.invocation("review.skip", "该 commit 短时间内已审查，跳过", { reason: "dup_cache" });
     return;
   }
   // 跨触发即时去重：已有 heimdall/reviewed 成功状态则跳过（防自动+手动竞态重复）
@@ -182,7 +208,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     if (stRes.ok) {
       const st = (await stRes.json()) as { statuses?: Array<{ context?: string; state?: string }> };
       if (st.statuses?.some((s) => s.context === "heimdall/reviewed" && s.state === "success")) {
-        console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已有审查标记，跳过`);
+        obs.invocation("review.skip", "该 commit 已有审查标记，跳过", { reason: "dup_status" });
         return;
       }
     }
@@ -190,12 +216,14 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
   const diff = formatSafeDiff(reviewable, Number(env.MAX_DIFF_LENGTH ?? 40000));
+  obs.debug("review.diff", "读取变更", { files: stats.files, additions: stats.additions, deletions: stats.deletions, diffBytes: diff.length });
 
-const language: ReviewLanguage = (env.REVIEW_LANGUAGE ?? "en").toLowerCase() as ReviewLanguage;
-const L = LABELS[language] ?? LABELS.en;
+  const language: ReviewLanguage = (env.REVIEW_LANGUAGE ?? "en").toLowerCase() as ReviewLanguage;
+  const L = LABELS[language] ?? LABELS.en;
 
   if (!diff.trim()) {
     await postReview(gh, owner, repo, pullNumber, renderReport(stats, "", undefined, language, L.noChange));
+    obs.invocation("review.invocation", "无可审查变更", { outcome: "empty", durationMs: reviewSpan.elapsed() });
     return;
   }
 
@@ -204,15 +232,21 @@ const L = LABELS[language] ?? LABELS.en;
     : buildSystemPrompt(language);
 
   // 2. 调用 LLM 生成审查报告
+  let outcome = "posted";
   let report: string;
   let criticalCount = 0;
+  const issueCounts = { critical: 0, important: 0, normal: 0 };
   let inlineComments: Array<{ path: string; line: number; side: string; body: string }> = [];
+  const llmSpan = obs.start();
   try {
     const raw = await generateReview(env, diff, systemPrompt);
+    llmSpan.finish("llm.done", { provider: providerName(env), model: env.AI_MODEL, status: "ok" });
     const parsed = parseReview(raw);
     const filtered = parsed ? filterByMinSeverity(parsed, repoConfig.min_severity) : null;
     criticalCount = filtered ? filtered.issues.filter((i) => i.severity === "critical").length : 0;
     if (filtered) {
+      for (const i of filtered.issues) issueCounts[i.severity]++;
+      obs.info("review.parse", "审查结果解析成功", { status: "ok", issues: filtered.issues.length });
       filtered.issues = validateIssueLines(filtered.issues, reviewable);
       report = renderReport(stats, renderMarkdown(filtered, language), filtered, language);
       inlineComments = filtered.issues
@@ -232,10 +266,15 @@ const L = LABELS[language] ?? LABELS.en;
           ].join(""),
         }));
     } else {
+      outcome = "parse_fallback";
+      obs.warn("review.parse", "结构化解析失败，降级为整体报告", { status: "fallback" });
       report = renderReport(stats, raw, undefined, language);
     }
   } catch (err) {
-    report = renderReport(stats, `⚠️ ${L.reviewFailed}：${err instanceof Error ? err.message : String(err)}`, undefined, language);
+    outcome = "failed";
+    const message = err instanceof Error ? err.message : String(err);
+    obs.error("review.error", `LLM 调用失败：${message}`, { reason: "llm_error", provider: providerName(env), model: env.AI_MODEL, durationMs: llmSpan.elapsed() });
+    report = renderReport(stats, `⚠️ ${L.reviewFailed}：${message}`, undefined, language);
   }
 
   // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
@@ -253,6 +292,12 @@ const L = LABELS[language] ?? LABELS.en;
 
   // 3. 以 Review 形式回写 PR（整体报告 + 行内评论）
   await postReview(gh, owner, repo, pullNumber, report, inlineComments);
+  obs.info("review.post", "审查已发布", issueCounts);
+  obs.invocation("review.invocation", outcome === "failed" ? "审查失败" : "审查完成", {
+    outcome,
+    durationMs: reviewSpan.elapsed(),
+    ...issueCounts,
+  });
 
   // 4. 标记该 commit 已审查（供跨触发去重，防自动+手动竞态重复）
   if (headSha) {
@@ -263,9 +308,13 @@ const L = LABELS[language] ?? LABELS.en;
         body: { state: "success", context: "heimdall/reviewed", description: "已完成海姆达尔审查" },
       });
     } catch (err) {
-      console.error("设置已审查状态失败（不影响审查）：", err instanceof Error ? err.message : err);
+      obs.warn("review.status", "设置已审查状态失败（不影响审查）", { reason: "status_failed", detail: err instanceof Error ? err.message : String(err) });
     }
   }
+}
+
+function providerName(env: Env): string {
+  return (env.AI_PROVIDER ?? "anthropic").toLowerCase();
 }
 
 function severityLabel(severity: string): string {

@@ -57,7 +57,7 @@ cp scripts/heimdall-review.js scripts/
 | 定位 | 单仓库自用、快速接入 | 团队多仓库 / 产品化分发 |
 | 需要注册 GitHub App | 否 | 是 |
 | 需要服务器 | 否 | 否（Cloudflare 边缘） |
-| 安装方式 | 复制 2 个文件到目标仓库 | 安装 GitHub App |
+| 安装方式 | 复制 3 个文件到目标仓库 | 安装 GitHub App |
 | 部署成本 | 免费 | 免费额度内（大 diff 建议 Pro） |
 
 - **只想给自己的仓库加个 AI reviewer** → 模式 A，2 分钟
@@ -73,6 +73,7 @@ cp scripts/heimdall-review.js scripts/
 mkdir -p <目标仓库>/.github/workflows <目标仓库>/scripts
 cp template/heimdall-review.yml <目标仓库>/.github/workflows/
 cp scripts/heimdall-review.js <目标仓库>/scripts/
+cp scripts/observability.js <目标仓库>/scripts/
 ```
 
 ### 2. 配置 AI
@@ -216,6 +217,10 @@ AI_MODEL=claude-sonnet-5       # 你的网关支持的模型 ID
 | 走代理网关 / 本地模型 | `AI_BASE_URL = https://<网关>` | 环境变量 / Actions Variable |
 | 提供方专属 base_url | `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL` | 环境变量 / Actions Variable |
 | diff 长度上限 | `MAX_DIFF_LENGTH`（默认 40000）| 环境变量 / `wrangler.toml [vars]` |
+| 可观测：详细日志总开关 | `HEIMDALL_LOG_ENABLED`（**默认 true**）| 环境变量 / Actions Variable / `wrangler.toml [vars]` |
+| 可观测：每次审查调用摘要 | `HEIMDALL_INVOCATION_LOGS`（**默认 true**）| 环境变量 / Actions Variable / `wrangler.toml [vars]` |
+| 可观测：日志级别 | `HEIMDALL_LOG_LEVEL = error \| warn \| info \| debug`（**默认 info**）| 环境变量 / Actions Variable / `wrangler.toml [vars]` |
+| 可观测：仓库级覆盖 | `observability.logs.enabled / invocation_logs` | `.github/heimdall.yml` |
 | 只审查某些文件 | `include: ["*.ts", ...]` | `.github/heimdall.yml` |
 | 排除某些文件 | `exclude: ["**/generated/**", ...]` | `.github/heimdall.yml` |
 | 只显示 ≥ 某严重度 | `min_severity: important` | `.github/heimdall.yml` |
@@ -258,9 +263,50 @@ block_on_critical: true
 
 # 设为 true 时开启自动审查；默认不配置 = 仅手动触发（@CoderHeimdall）
 auto_review: true
+
+# 仓库级可观测性覆盖（默认来自环境变量，见下方「可观测性」小节）
+observability:
+  logs:
+    enabled: true
+    invocation_logs: true
 ```
 
 ---
+
+## 可观测性
+
+海姆达尔向 stdout/console 输出 **JSON-lines** 结构化日志（GitHub Actions workflow 日志、Cloudflare Workers Logs、或自托管 stdout），一行一个事件，用每次审查的 `reviewId` 关联。
+
+**开关（环境变量设运维默认，`.github/heimdall.yml` 可逐仓库覆盖）：**
+
+| 环境变量 | 默认 | 含义 |
+| --- | --- | --- |
+| `HEIMDALL_LOG_ENABLED` | `true` | 详细阶段日志总开关（`review.*`、`llm.*`）|
+| `HEIMDALL_INVOCATION_LOGS` | `true` | 每次审查固定一行调用摘要（`review.invocation`）|
+| `HEIMDALL_LOG_LEVEL` | `info` | 级别过滤：`error \| warn \| info \| debug`（只影响详细日志）|
+
+**仓库级覆盖**（在被审查仓库的 `.github/heimdall.yml`）：
+
+```yaml
+observability:
+  logs:
+    enabled: false      # 本仓库关掉详细日志
+    invocation_logs: true
+```
+
+`warn`/`error` **始终输出**（失败永不隐藏）；`enabled: false` 只关掉 info/debug 细节。
+
+**关键事件** —— 诊断「这个 PR 为什么跳过 / 失败」：
+- `review.skip` + `reason`：`draft_pr` · `bot_pr` · `not_auto_review` · `reviewer_not_whitelisted` · `dup_review` · `dup_cache` · `dup_status` · `missing_api_key` · `empty_diff` · `non_pr_event` · `no_trigger_comment`
+- `review.error` + `reason`：`llm_error` · `parse_failed` · `post_inline_failed`
+- 阶段事件：`review.start` → `review.config` → `review.diff`（debug）→ `llm.start`/`llm.done` → `review.parse` → `review.post` → `review.complete`
+- `review.invocation` —— 每次审查一行摘要（outcome、`durationMs`、各级别问题数）
+
+示例行：
+
+```json
+{"ts":"2026-08-16T02:40:00.000Z","level":"info","event":"review.skip","mode":"worker","repo":"octocat/hello-world","pr":12,"sha":"abc1234","reviewId":"h-x1y2z3","reason":"not_auto_review","msg":"默认仅按需审查，跳过自动审查"}
+```
 
 ## 审查报告样式
 

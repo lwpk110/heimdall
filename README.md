@@ -75,6 +75,7 @@ Open a PR and comment `@CoderHeimdall` (or `@heimdall`) to see the review. For a
 mkdir -p <target>/.github/workflows <target>/scripts
 cp template/heimdall-review.yml <target>/.github/workflows/
 cp scripts/heimdall-review.js <target>/scripts/
+cp scripts/observability.js <target>/scripts/
 ```
 
 ### 2. Configure AI
@@ -211,6 +212,10 @@ AI_MODEL=claude-sonnet-5
 | Per-provider base | `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL` | env / Variable |
 | **Report language** | `REVIEW_LANGUAGE = en \| zh \| bilingual` (**default en**) | env / Variable |
 | Diff length cap | `MAX_DIFF_LENGTH` (default 40000) | env / `wrangler.toml [vars]` |
+| Observability: detailed logs | `HEIMDALL_LOG_ENABLED` (**default true**) | env / Variable / `wrangler.toml [vars]` |
+| Observability: per-review summary | `HEIMDALL_INVOCATION_LOGS` (**default true**) | env / Variable / `wrangler.toml [vars]` |
+| Observability: log level | `HEIMDALL_LOG_LEVEL = error \| warn \| info \| debug` (**default info**) | env / Variable / `wrangler.toml [vars]` |
+| Observability: per-repo override | `observability.logs.enabled / invocation_logs` | `.github/heimdall.yml` |
 | Only review some files | `include: ["*.ts", ...]` | `.github/heimdall.yml` |
 | Exclude files | `exclude: [...]` | `.github/heimdall.yml` |
 | Min severity shown | `min_severity: important` | `.github/heimdall.yml` |
@@ -232,9 +237,50 @@ manual_reviewers:
   - octocat
 block_on_critical: true
 auto_review: true   # default is on-demand only
+
+# Per-repo observability override (defaults come from env, see §Observability)
+observability:
+  logs:
+    enabled: true
+    invocation_logs: true
 ```
 
 ---
+
+## Observability
+
+Heimdall emits **JSON-lines** structured logs to stdout/console — GitHub Actions workflow logs, Cloudflare Workers Logs, or self-hosted stdout — one line per event, tied together by a per-review `reviewId`.
+
+**Toggles (operator default via env, per-repo override via `.github/heimdall.yml`):**
+
+| Env | Default | Meaning |
+| --- | --- | --- |
+| `HEIMDALL_LOG_ENABLED` | `true` | Master switch for detailed stage logs (`review.*`, `llm.*`) |
+| `HEIMDALL_INVOCATION_LOGS` | `true` | Always-on one-line summary per review (`review.invocation`) |
+| `HEIMDALL_LOG_LEVEL` | `info` | Filter: `error \| warn \| info \| debug` (affects detailed logs only) |
+
+**Per-repo override** (in the target repo's `.github/heimdall.yml`):
+
+```yaml
+observability:
+  logs:
+    enabled: false      # turn off detailed logs for this repo
+    invocation_logs: true
+```
+
+`warn`/`error` are **always emitted** (a failure is never hidden); `enabled: false` silences only the info/debug detail.
+
+**Key events** — diagnose "why was this PR skipped/failed":
+- `review.skip` with `reason`: `draft_pr` · `bot_pr` · `not_auto_review` · `reviewer_not_whitelisted` · `dup_review` · `dup_cache` · `dup_status` · `missing_api_key` · `empty_diff` · `non_pr_event` · `no_trigger_comment`
+- `review.error` with `reason`: `llm_error` · `parse_failed` · `post_inline_failed`
+- Stage events: `review.start` → `review.config` → `review.diff` (debug) → `llm.start`/`llm.done` → `review.parse` → `review.post` → `review.complete`
+- `review.invocation` — one summary line per review (outcome, `durationMs`, issue counts)
+
+Example line:
+
+```json
+{"ts":"2026-08-16T02:40:00.000Z","level":"info","event":"review.skip","mode":"worker","repo":"octocat/hello-world","pr":12,"sha":"abc1234","reviewId":"h-x1y2z3","reason":"not_auto_review","msg":"默认仅按需审查，跳过自动审查"}
+```
 
 ## Report Style
 

@@ -20,103 +20,155 @@ export interface RepoConfig {
   block_on_critical?: boolean;
   /** 是否自动审查（PR 打开/更新时）；设为 false 则仅响应 @heimdall review（默认 true） */
   auto_review?: boolean;
+  /** 仓库级可观测性覆盖（默认由环境变量决定） */
+  observability?: {
+    logs?: {
+      enabled?: boolean;
+      invocation_logs?: boolean;
+    };
+  };
 }
 
-/** 解析 heimdall.yml（支持标量、内联数组、块列表、块文本 |，忽略其他键以兼容未来扩展） */
+/**
+ * 解析 heimdall.yml（支持标量、内联数组、块列表、块文本 |、嵌套 map，
+ * 忽略未知键以兼容未来扩展）。
+ */
 export function parseHeimdallConfig(text: string): RepoConfig {
-  const cfg: RepoConfig = {};
   const lines = text.split(/\r?\n/);
-  let i = 0;
+  const parsed = parseObject(lines, 0, -1);
+  const cfg: RepoConfig = {};
+  assignKnown(cfg, parsed.value ?? {});
+  return cfg;
+}
+
+/** 返回一行的缩进空格数（空行返回 -1） */
+function lineIndent(line: string): number {
+  return line.search(/\S/);
+}
+
+/**
+ * 从 start 开始解析一个 map 节点，遇到缩进 <= parentIndent 的行（或结尾）停止。
+ * 返回解析出的对象与下一个待处理下标。
+ */
+function parseObject(
+  lines: string[],
+  start: number,
+  parentIndent: number
+): { value: Record<string, unknown>; next: number } {
+  const obj: Record<string, unknown> = {};
+  let i = start;
   while (i < lines.length) {
-    const line = lines[i];
-    const trimmed = line.trim();
+    const trimmed = lines[i].trim();
     if (!trimmed || trimmed.startsWith("#")) {
       i++;
       continue;
     }
+    const indent = lineIndent(lines[i]);
+    if (indent <= parentIndent) break;
+
     const match = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(trimmed);
     if (!match) {
       i++;
       continue;
     }
-    const key = match[1] as keyof RepoConfig;
-    let rest = match[2].trim();
+    const key = match[1];
+    const rest = match[2].trim();
+    i++;
 
     if (rest === "|") {
       const block: string[] = [];
-      i++;
-      while (i < lines.length && lines[i].startsWith(" ") && lines[i].trim() !== "") {
+      while (i < lines.length && lines[i].trim() !== "" && lineIndent(lines[i]) > indent) {
         block.push(lines[i].replace(/^\s+/, ""));
         i++;
       }
-      if (block.length) setValue(cfg, key, block.join("\n"));
+      if (block.length) obj[key] = block.join("\n");
       continue;
     }
 
     if (rest.startsWith("[")) {
       const inner = rest.slice(1, rest.lastIndexOf("]"));
-      const arr = inner
+      obj[key] = inner
         .split(",")
         .map((s) => s.trim().replace(/^["']|["']$/g, ""))
         .filter(Boolean);
-      setValue(cfg, key, arr);
-      i++;
       continue;
     }
 
     if (rest === "") {
-      const items: string[] = [];
-      i++;
-      while (i < lines.length && /^\s*-/.test(lines[i])) {
-        items.push(lines[i].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
-        i++;
+      if (i < lines.length) {
+        const nIndent = lineIndent(lines[i]);
+        if (nIndent > indent && /^\s*-/.test(lines[i])) {
+          const items: string[] = [];
+          while (i < lines.length && lineIndent(lines[i]) > indent && /^\s*-/.test(lines[i])) {
+            items.push(lines[i].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
+            i++;
+          }
+          obj[key] = items;
+          continue;
+        }
+        if (nIndent > indent && /^[A-Za-z_][\w-]*:/.test(lines[i].trim())) {
+          const sub = parseObject(lines, i, indent);
+          obj[key] = sub.value;
+          i = sub.next;
+          continue;
+        }
       }
-      if (items.length) setValue(cfg, key, items);
-      else {
-        setValue(cfg, key, undefined);
-        i++;
-      }
+      obj[key] = undefined;
       continue;
     }
 
-    setValue(cfg, key, parseScalar(rest));
-    i++;
+    obj[key] = parseScalar(rest);
   }
-  return cfg;
+  return { value: obj, next: i };
 }
 
-function setValue(cfg: RepoConfig, key: keyof RepoConfig, value: unknown): void {
-  if (value === undefined) return;
-  switch (key) {
-    case "version":
-      if (typeof value === "number") cfg.version = value;
-      break;
-    case "include":
-    case "exclude":
-      if (Array.isArray(value)) cfg[key] = value.map(String);
-      break;
-    case "manual_reviewers":
-      if (Array.isArray(value)) {
-        cfg.manual_reviewers = value
-          .map((v) => String(v).replace(/^@/, "").trim())
-          .filter(Boolean);
-      }
-      break;
-    case "min_severity":
-      if (value === "critical" || value === "important" || value === "normal") {
-        cfg.min_severity = value;
-      }
-      break;
-    case "instructions":
-      if (typeof value === "string") cfg.instructions = value;
-      break;
-    case "block_on_critical":
-      if (typeof value === "boolean") cfg.block_on_critical = value;
-      break;
-    case "auto_review":
-      if (typeof value === "boolean") cfg.auto_review = value;
-      break;
+/** 把解析出的原始对象按 schema 写进 RepoConfig（未知键忽略） */
+function assignKnown(cfg: RepoConfig, value: Record<string, unknown>): void {
+  for (const [key, v] of Object.entries(value)) {
+    if (v === undefined) continue;
+    switch (key) {
+      case "version":
+        if (typeof v === "number") cfg.version = v;
+        break;
+      case "include":
+      case "exclude":
+        if (Array.isArray(v)) cfg[key] = v.map(String);
+        break;
+      case "manual_reviewers":
+        if (Array.isArray(v)) {
+          cfg.manual_reviewers = v.map((x) => String(x).replace(/^@/, "").trim()).filter(Boolean);
+        }
+        break;
+      case "min_severity":
+        if (v === "critical" || v === "important" || v === "normal") {
+          cfg.min_severity = v;
+        }
+        break;
+      case "instructions":
+        if (typeof v === "string") cfg.instructions = v;
+        break;
+      case "block_on_critical":
+        if (typeof v === "boolean") cfg.block_on_critical = v;
+        break;
+      case "auto_review":
+        if (typeof v === "boolean") cfg.auto_review = v;
+        break;
+      case "observability":
+        assignObservability(cfg, v);
+        break;
+    }
   }
+}
+
+function assignObservability(cfg: RepoConfig, value: unknown): void {
+  if (typeof value !== "object" || value === null) return;
+  const rawLogs = (value as Record<string, unknown>).logs;
+  if (typeof rawLogs !== "object" || rawLogs === null) return;
+  const logs = rawLogs as Record<string, unknown>;
+  const out: NonNullable<RepoConfig["observability"]>["logs"] = {};
+  if (typeof logs.enabled === "boolean") out.enabled = logs.enabled;
+  if (typeof logs.invocation_logs === "boolean") out.invocation_logs = logs.invocation_logs;
+  if (Object.keys(out).length > 0) cfg.observability = { logs: out };
 }
 
 function parseScalar(raw: string): string | number | boolean {
