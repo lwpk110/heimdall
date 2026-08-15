@@ -7,7 +7,7 @@
 ## 特性
 
 - **三形态部署**：GitHub Actions（单仓库自用、零服务器）、Cloudflare Workers（无服务器、可作为 GitHub App 分发）、Probot / Docker 自托管（代码不出内网）
-- 自动监听 PR 的 `opened` / `reopened` / `synchronize` 事件；在 PR 评论发 `@heimdall`（或 `@heimdall review`）可手动触发重新审查
+- 自动监听 PR 的 `opened` / `reopened` / `synchronize` 事件；在 PR 评论发 `@CoderHeimdall`（或 `@heimdall`）可手动触发重新审查
 - 调用 Claude / GPT / Gemini / 本地模型审查 diff（支持统一 `AI_API_KEY` + `AI_BASE_URL` 走代理网关）
 - 以 PR Review 形式发布报告：变更摘要 + 严重度分级（🔴 严重 / 🟡 建议 / 🟢 良好）
 - 行内评论定位到具体文件与代码行，行号映射失败时自动降级为整体报告，不丢失审查内容
@@ -57,7 +57,7 @@ cp scripts/heimdall-review.js <目标仓库>/scripts/
 
 ### 4. 手动触发
 
-在 PR 评论里发 `@heimdall review` 即可手动触发一次重新审查（如只想偶尔审查，可在 workflow 里删掉 `synchronize` 减少自动触发）。
+在 PR 评论里发 `@CoderHeimdall`（或 `@heimdall`）即可手动触发一次重新审查（如只想偶尔审查，可在 workflow 里删掉 `synchronize` 减少自动触发）。
 
 ---
 
@@ -77,10 +77,10 @@ https://github.com/settings/apps/new?url=https://raw.githubusercontent.com/<你�
 
 1. GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**
 2. 关键项：
-   - **GitHub App name**：`Heimdall-coding-review`（全局唯一，重名可加后缀）
+   - **GitHub App name**：`CoderHeimdall`（全局唯一，重名可加后缀）
    - **Webhook URL**：部署 Worker 后填 `https://heimdall.<你的子域>.workers.dev/api/github/webhooks`
    - **Webhook secret**：生成随机串并保存
-   - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write（用于响应 `@heimdall review` 评论）；`Metadata` → Read-only
+   - **Permissions**：`Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write（用于响应 `@CoderHeimdall` 评论）；`Metadata` → Read-only
    - **Subscribe to events**：`pull_request`、`issue_comment`
 3. 记录 **App ID**，生成并下载 **Private key**（.pem）
 4. 左侧 **Install App**，安装到你的仓库
@@ -196,7 +196,7 @@ auto_review: false
 三种形态共享同一套审查内核，抽象为「触发 → 配置 → 数据获取 → 模型调用 → 结果解析 → 回写」管线，任一环节可独立替换：
 
 ```
-触发（PR 事件 / @heimdall review 评论）
+触发（PR 事件 / @CoderHeimdall 评论）
    │
    ▼
 读取配置（.github/heimdall.yml）＋ 读取 PR diff（GitHub API，含 include/exclude 过滤）
@@ -251,7 +251,7 @@ heimdall/
 │   └── wrangler.toml
 ├── src/                        # 共享审查内核
 │   ├── index.ts                # 自托管入口（createNodeMiddleware 启动 webhook 服务）
-│   ├── app.ts                  # Probot 事件订阅（自动审查 + @heimdall review）
+│   ├── app.ts                  # Probot 事件订阅（自动审查 + @CoderHeimdall 触发）
 │   ├── config.ts               # 环境配置解析（AI 提供方 / base_url / 模型）
 │   └── review/
 │       ├── index.ts            # 审查主流程（触发 → 过滤 → 审查 → 回写）
@@ -278,7 +278,7 @@ heimdall/
 
 **每次 push 都会重新审查吗？**
 
-会（`synchronize` 事件），但**同一 commit 不会重复审查**：自动触发和手动 `@heimdall` 触发都会检查该 commit 是否已有海姆达尔审查，有则跳过；只有推入**新 commit** 才会重新审查。
+会（`synchronize` 事件），但**同一 commit 不会重复审查**：自动触发和手动 `@CoderHeimdall` 触发都会检查该 commit 是否已有海姆达尔审查，有则跳过；只有推入**新 commit** 才会重新审查。
 
 ## 路线图
 
@@ -288,7 +288,7 @@ heimdall/
 - [x] 变更摘要 + 严重度分级（🔴/🟡/🟢）（M2）
 - [x] 行内评论，定位到具体文件与代码行（M2）
 - [x] `.github/heimdall.yml` 配置化：include/exclude / min_severity / instructions（M3）
-- [x] 按需审查 `@heimdall review` + `manual_reviewers` 白名单（M3/M4）
+- [x] 按需审查 `@CoderHeimdall` + `manual_reviewers` 白名单（M3/M4）
 - [x] 更多 AI 提供方：Gemini、本地模型、统一 `AI_API_KEY` / `AI_BASE_URL`（M3）
 - [x] 同 commit 去重（M4）
 - [x] `block_on_critical` 阻断合并（M4）

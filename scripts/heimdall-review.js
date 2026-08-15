@@ -69,7 +69,7 @@ if (!pr) {
 }
 if (event.issue) {
   const body = event.comment?.body ?? "";
-  if (!/@heimdall(?:\s+review)?\b/i.test(body)) {
+  if (!/@(?:coder)?heimdall(?:\s+review)?\b/i.test(body)) {
     console.log("非触发评论，跳过");
     process.exit(0);
   }
