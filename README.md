@@ -35,11 +35,11 @@
 
 ### 1. 复制文件到目标仓库
 
-把本仓库的 `.github/workflows/heimdall-review.yml` 和 `scripts/heimdall-review.js` 复制到「被审查的仓库」：
+把本仓库的 `template/heimdall-review.yml` 和 `scripts/heimdall-review.js` 复制到「被审查的仓库」：
 
 ```bash
 mkdir -p <目标仓库>/.github/workflows <目标仓库>/scripts
-cp .github/workflows/heimdall-review.yml <目标仓库>/.github/workflows/
+cp template/heimdall-review.yml <目标仓库>/.github/workflows/
 cp scripts/heimdall-review.js <目标仓库>/scripts/
 ```
 
@@ -240,11 +240,11 @@ heimdall/
 ├── app.yml                     # GitHub App Manifest（pull_request / issue_comment 事件）
 ├── .github/
 │   ├── workflows/
-│   │   ├── heimdall-review.yml # 模式 A：审查 workflow（复制到目标仓库）
 │   │   ├── ci.yml              # 本仓库 CI：构建 + 单元测试
 │   │   └── deploy.yml          # 模式 B：自动发布 Worker 到 Cloudflare
 │   ├── ISSUE_TEMPLATE/         # Issue 模板（bug / feature）
 │   └── pull_request_template.md
+├── template/heimdall-review.yml # 模式 A：审查 workflow（复制到目标仓库）
 ├── scripts/heimdall-review.js  # 模式 A：审查脚本（复制到目标仓库，零依赖）
 ├── worker/                     # 模式 B：Cloudflare Worker
 │   ├── index.ts
