@@ -44,6 +44,7 @@
 mkdir -p .github/workflows scripts
 cp template/heimdall-review.yml .github/workflows/
 cp scripts/heimdall-review.js scripts/
+cp scripts/observability.js scripts/
 ```
 
 Then in the target repo **Settings → Secrets and variables → Actions** add:
@@ -59,7 +60,7 @@ Open a PR and comment `@CoderHeimdall` (or `@heimdall`) to see the review. For a
 | Purpose | Single repo, quick | Team / productized distribution |
 | GitHub App needed | No | Yes |
 | Server | No | No (Cloudflare edge) |
-| Install | Copy 2 files | Install GitHub App |
+| Install | Copy 3 files | Install GitHub App |
 | Cost | Free | Free tier (Pro for large diffs) |
 
 - **Just want an AI reviewer for your repo** → Mode A, 2 minutes

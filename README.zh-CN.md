@@ -41,6 +41,7 @@
 mkdir -p .github/workflows scripts
 cp template/heimdall-review.yml .github/workflows/
 cp scripts/heimdall-review.js scripts/
+cp scripts/observability.js scripts/
 ```
 
 然后在目标仓库 **Settings → Secrets and variables → Actions** 添加：
