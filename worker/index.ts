@@ -127,8 +127,8 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     loadRepoConfig(gh, owner, repo),
     gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`),
   ]);
-  if (isAuto && repoConfig.auto_review === false) {
-    console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
+  if (isAuto && repoConfig.auto_review !== true) {
+    console.log("海姆达尔：默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）");
     return;
   }
   if (triggerAuthor && !isAllowedManualReviewer(repoConfig.manual_reviewers, triggerAuthor)) {

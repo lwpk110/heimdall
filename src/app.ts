@@ -15,8 +15,8 @@ export function createApp(app: Probot): void {
       const owner = pr.base.repo.owner.login;
       const repo = pr.base.repo.name;
       const repoConfig = await loadRepoConfigFromOctokit(context.octokit, owner, repo);
-      if (repoConfig.auto_review === false) {
-        console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
+      if (repoConfig.auto_review !== true) {
+        console.log("海姆达尔：默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）");
         return;
       }
 
