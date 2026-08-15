@@ -1,27 +1,27 @@
-## 变更概述
+## Summary / 变更概述
 
-<!-- 用一两句话说明这个 PR 改了什么、为什么改 -->
+<!-- 1-2 sentences on what and why / 用一两句话说明这个 PR 改了什么、为什么改 -->
 
-## 关联 Issue
+## Related Issues / 关联 Issue
 
-<!-- 关闭的 Issue 请写成 "Closes #编号"，自动联动 -->
+<!-- "Closes #编号" auto-links / 关闭的 Issue 请写成 Closes #编号 -->
 
 - Closes #
 
-## 变更类型
+## Change Type / 变更类型
 
-- [ ] 新功能（Feature）
-- [ ] Bug 修复
-- [ ] 重构 / 代码整理
-- [ ] 文档 / 流程
-- [ ] 依赖 / 构建
+- [ ] Feature / 新功能
+- [ ] Bug fix / Bug 修复
+- [ ] Refactor / 重构
+- [ ] Docs / 文档
+- [ ] Build / deps / 构建依赖
 
-## 验证清单
+## Checklist / 验证清单
 
-- [ ] `npm run build` 通过（TypeScript 严格模式）
-- [ ] 相关逻辑已自查，边界情况已考虑
-- [ ] 本仓库测试 / CI 通过
+- [ ] `npm test` passes (build + unit tests) / 通过
+- [ ] Edge cases considered / 边界情况已考虑
+- [ ] CI green / CI 通过
 
-## 测试说明
+## Test Plan / 测试说明
 
-<!-- 如何验证这个改动，例如：在本地仓库提 PR 观察审查报告 -->
+<!-- How to verify, e.g. open a PR and observe the review / 如何验证这个改动 -->
