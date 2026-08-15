@@ -35,7 +35,7 @@ export function createApp(app: Probot): void {
   app.on("issue_comment.created", async (context) => {
     const payload = context.payload;
     if (!payload.issue?.pull_request) return; // 只处理 PR 上的评论
-    if (!/@heimdall(?:\s+review)?\b/i.test(payload.comment?.body ?? "")) return;
+    if (!/@(?:coder)?heimdall(?:\s+review)?\b/i.test(payload.comment?.body ?? "")) return;
     if (payload.comment?.user?.type === "Bot") return; // 忽略机器人评论
 
     const owner = payload.repository.owner.login;
