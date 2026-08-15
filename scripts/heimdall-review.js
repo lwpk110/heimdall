@@ -492,6 +492,7 @@ function renderMarkdown(result) {
     const normal = result.issues.filter((i) => i.severity === "normal").length;
     lines.push(`🔍 **发现 ${result.issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
   }
+  lines.push("<details>", "<summary>🤖 审查评论</summary>", "");
   for (const sev of SEVERITIES) {
     const group = result.issues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
@@ -509,6 +510,7 @@ function renderMarkdown(result) {
     lines.push("");
   }
   if (result.issues.length === 0) lines.push("未发现明显问题。", "");
+  lines.push("</details>");
   return lines.join("\n").trim();
 }
 
@@ -546,11 +548,21 @@ function renderReport(stats, content) {
       ? "\n\n| 文件 | 变更 |\n| --- | --- |\n" +
         stats.fileDetails.map((f) => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`).join("\n")
       : "";
+  const info = `
+<details>
+<summary>ℹ️ 审查信息</summary>
+
+- **审查文件**：${stats.files} 个
+- **变更规模**：+${stats.additions} / -${stats.deletions} 行
+
+</details>`;
   return `## 海姆达尔 · 代码审查报告
 
 **变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。${table}
 
-${content}`;
+${content}
+
+${info}`;
 }
 
 main().catch((err) => {
