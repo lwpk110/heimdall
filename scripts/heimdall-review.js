@@ -482,7 +482,7 @@ function parseReview(raw) {
   const candidates = extractJsonCandidates(String(raw));
   for (const c of candidates) {
     try {
-      const data = JSON.parse(c);
+      const data = parseLooseJson(c);
       const issues = Array.isArray(data.issues)
         ? data.issues.map(normalizeIssue).filter(Boolean)
         : [];
@@ -494,6 +494,36 @@ function parseReview(raw) {
     }
   }
   return null;
+}
+
+// 宽松 JSON 解析：修复字符串字面量中的未转义换行（LLM 输出常见）
+function parseLooseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch (err) {
+    let out = "";
+    let inStr = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inStr) {
+        if (c === "\\") {
+          out += c + (text[i + 1] || "");
+          i++;
+          continue;
+        }
+        if (c === '"') inStr = false;
+        if (c === "\n" || c === "\r") {
+          out += "\\n";
+          continue;
+        }
+        out += c;
+      } else {
+        if (c === '"') inStr = true;
+        out += c;
+      }
+    }
+    return JSON.parse(out);
+  }
 }
 
 function extractJsonCandidates(raw) {
