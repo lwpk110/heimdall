@@ -318,8 +318,8 @@ async function postReview(
   if (!res.ok) throw new Error(`发布 review 失败：${res.status} ${await res.text()}`);
 }
 
-/** AI 调用带超时，避免占用 waitUntil 时间窗导致审查被终止 */
-async function fetchTimeout(url: string, options: RequestInit, ms = 25000): Promise<Response> {
+/** AI 调用带超时，避免占用 waitUntil 时间窗导致审查被终止（free 计划上限 30s） */
+async function fetchTimeout(url: string, options: RequestInit, ms = 28000): Promise<Response> {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), ms);
   try {
