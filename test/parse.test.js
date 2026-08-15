@@ -98,6 +98,22 @@ test("parseReview：suggestion 字段解析与渲染", () => {
   assert.ok(!md2.includes("💡 建议"));
 });
 
+test("parseReview：diff 字段解析与渲染", () => {
+  const raw = JSON.stringify({
+    summary: "s",
+    issues: [{ severity: "important", file: "b.ts", line: 2, comment: "c", diff: "- const x = 1;\n+ const x = 2;" }],
+  });
+  const result = parseReview(raw);
+  assert.equal(result.issues[0].diff, "- const x = 1;\n+ const x = 2;");
+  const md = renderMarkdown(result);
+  assert.ok(md.includes("```diff"));
+  assert.ok(md.includes("- const x = 1;"));
+  assert.ok(md.includes("+ const x = 2;"));
+  // 无 diff 时不渲染代码块
+  const md2 = renderMarkdown({ summary: "", issues: [{ severity: "normal", file: "a.ts", line: 1, comment: "c" }] });
+  assert.ok(!md2.includes("```diff"));
+});
+
 test("renderMarkdown：空 issue 输出提示", () => {
   const md = renderMarkdown({ summary: "", issues: [] });
   assert.ok(md.includes("未发现明显问题"));

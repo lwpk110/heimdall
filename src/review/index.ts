@@ -116,20 +116,35 @@ interface DiffStats {
   files: number;
   additions: number;
   deletions: number;
+  /** 文件明细，用于变更表格 */
+  fileDetails: Array<{ filename: string; additions: number; deletions: number }>;
 }
 
-function diffStats(files: Array<{ additions?: number; deletions?: number }>): DiffStats {
+function diffStats(files: Array<{ filename?: string; additions?: number; deletions?: number }>): DiffStats {
   return {
     files: files.length,
     additions: files.reduce((sum, f) => sum + (f.additions ?? 0), 0),
     deletions: files.reduce((sum, f) => sum + (f.deletions ?? 0), 0),
+    fileDetails: files
+      .map((f) => ({
+        filename: f.filename ?? "",
+        additions: f.additions ?? 0,
+        deletions: f.deletions ?? 0,
+      }))
+      .filter((f) => f.filename),
   };
 }
 
 function renderReport(stats: DiffStats, content: string): string {
+  const table =
+    stats.fileDetails.length > 0
+      ? ["", "| 文件 | 变更 |", "| --- | --- |"]
+          .concat(stats.fileDetails.map((f) => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`))
+          .join("\n")
+      : "";
   return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。${table}
 
 ${content}`;
 }

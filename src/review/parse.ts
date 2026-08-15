@@ -9,6 +9,8 @@ export interface ReviewIssue {
   comment: string;
   /** 具体修复建议（可选，可含改法/代码思路） */
   suggestion?: string;
+  /** 具体代码修改建议（可选，diff 格式，- 删 / + 增） */
+  diff?: string;
 }
 
 export interface ReviewResult {
@@ -82,14 +84,17 @@ function normalizeIssue(raw: unknown): ReviewIssue | null {
   const comment = typeof item.comment === "string" ? item.comment.trim() : "";
   const line = typeof item.line === "number" ? Math.floor(item.line) : 0;
   const suggestion = typeof item.suggestion === "string" ? item.suggestion.trim() : "";
+  const diff = typeof item.diff === "string" ? item.diff.trim() : "";
   if (!file || !comment) return null;
-  return {
+  const issue: ReviewIssue = {
     severity,
     file,
     line: line > 0 ? line : 0,
     comment,
-    ...(suggestion ? { suggestion } : {}),
   };
+  if (suggestion) issue.suggestion = suggestion;
+  if (diff) issue.diff = diff;
+  return issue;
 }
 
 /** 把结构化结果渲染为 markdown 报告（不含头部统计行） */
@@ -105,6 +110,7 @@ export function renderMarkdown(result: ReviewResult): string {
       const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
       lines.push(`- **\`${loc}\`**：${i.comment}`);
       if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
+      if (i.diff) lines.push("", "  ```diff", ...indentDiff(i.diff), "  ```");
     }
     lines.push("");
   }
@@ -112,4 +118,8 @@ export function renderMarkdown(result: ReviewResult): string {
     lines.push("未发现明显问题。", "");
   }
   return lines.join("\n").trim();
+}
+
+function indentDiff(diff: string): string[] {
+  return diff.split("\n").map((line) => (line ? "  " + line : "  "));
 }
