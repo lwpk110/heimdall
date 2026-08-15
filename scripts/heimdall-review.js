@@ -471,9 +471,11 @@ function normalizeIssue(raw) {
   const line = typeof raw.line === "number" ? Math.floor(raw.line) : 0;
   const severity = SEVERITIES.includes(raw.severity) ? raw.severity : "important";
   const suggestion = typeof raw.suggestion === "string" ? raw.suggestion.trim() : "";
+  const diff = typeof raw.diff === "string" ? raw.diff.trim() : "";
   if (!file || !comment) return null;
   const issue = { severity, file, line: line > 0 ? line : 0, comment };
   if (suggestion) issue.suggestion = suggestion;
+  if (diff) issue.diff = diff;
   return issue;
 }
 
@@ -488,6 +490,11 @@ function renderMarkdown(result) {
       const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
       lines.push(`- **\`${loc}\`**：${i.comment}`);
       if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
+      if (i.diff) {
+        lines.push("", "  ```diff");
+        for (const dl of String(i.diff).split("\n")) lines.push(dl ? "  " + dl : "  ");
+        lines.push("  ```");
+      }
     }
     lines.push("");
   }
@@ -517,13 +524,21 @@ function diffStats(files) {
     files: files.length,
     additions: files.reduce((sum, f) => sum + (f.additions || 0), 0),
     deletions: files.reduce((sum, f) => sum + (f.deletions || 0), 0),
+    fileDetails: files
+      .map((f) => ({ filename: f.filename || "", additions: f.additions || 0, deletions: f.deletions || 0 }))
+      .filter((f) => f.filename),
   };
 }
 
 function renderReport(stats, content) {
+  const table =
+    stats.fileDetails && stats.fileDetails.length > 0
+      ? "\n\n| 文件 | 变更 |\n| --- | --- |\n" +
+        stats.fileDetails.map((f) => `| \`${f.filename}\` | +${f.additions} / -${f.deletions} |`).join("\n")
+      : "";
   return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。
+**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，+${stats.additions} / -${stats.deletions} 行。${table}
 
 ${content}`;
 }
