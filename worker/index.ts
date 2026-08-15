@@ -328,6 +328,7 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
     }),
   });
   if (!res.ok) throw new Error(`Anthropic API 失败：${res.status} ${await res.text()}`);
-  const data = (await res.json()) as { content?: Array<{ text?: string }> };
-  return data.content?.[0]?.text ?? "";
+  const data = (await res.json()) as { content?: Array<{ type?: string; text?: string }> };
+  // content 可能含 thinking 块，需取 type 为 text 的块
+  return data.content?.find((block) => block.type === "text")?.text ?? "";
 }
