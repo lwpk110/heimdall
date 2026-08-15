@@ -374,11 +374,9 @@ heimdall/
 │       └── repo-config.ts      # heimdall.yml 解析 / 过滤 / 阈值 / 白名单
 ├── test/                       # 单元测试（node:test）
 ├── .claude/agents/critic.md    # 审查质量批评家 agent（量化评估 ≥85）
-├── AGENTS.md                   # AI Agent 项目指南
+├── AGENTS.md / CONTRIBUTING.md / PRD.md   # 英文版；对应 *.zh-CN.md 中文版
 ├── Dockerfile                  # 可选：自托管服务
-├── CONTRIBUTING.md             # 贡献指南
-├── PRD.md                      # 产品需求文档
-└── README.md
+└── README.md / README.zh-CN.md # 英文版 / 中文版
 ```
 
 ## 常见问题

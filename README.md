@@ -313,8 +313,9 @@ heimdall/
 │       └── repo-config.ts      # heimdall.yml parsing
 ├── test/                       # node:test
 ├── .claude/agents/critic.md    # review-quality critic agent
-├── AGENTS.md                   # AI agent project guide
-├── CONTRIBUTING.md / PRD.md / README.zh-CN.md
+├── AGENTS.md                   # AI agent project guide (EN)
+├── CONTRIBUTING.md / PRD.md    # EN; + *.zh-CN.md for Chinese
+├── README.zh-CN.md             # Chinese README
 └── README.md
 ```
 
