@@ -65,6 +65,7 @@ async function callAnthropic(
         model: config.model,
         max_tokens: 4096,
         system: req.systemPrompt,
+        thinking: { type: "disabled" },
         messages: [{ role: "user", content: req.diff }],
       }),
     }
