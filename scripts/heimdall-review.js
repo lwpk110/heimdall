@@ -47,7 +47,7 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加德彩�
 【输出质量要求】
 - summary（变更概述）：概括 PR 目的、主要改动、影响面与潜在风险，并给出建议的验证方式（如建议补充的测试、需要重点回归的点）
 - issues 每条包含：
-  - comment：**详细说明问题**——指出问题、说明影响与为什么是问题（引用具体代码行为依据）
+  - comment：**行动式语气说明**——先直接告诉开发者应该怎么做（以"应/建议/改为"开头），再点明问题与影响（如"当前硬编码密钥存在泄露风险，应从环境变量读取并在缺失时启动失败"）
   - suggestion（可选）：**具体修复建议**——给出改法、推荐 API/模式、或修复思路（可含简短代码示意）；给不出明确建议时可省略
   - 能定位到 diff 新增行的必须给真实行号（line），无法确定填 0
 - 严重度判定：critical（会导致 bug/安全事故/数据错误）、important（可靠性/性能隐患、明显可改进）、normal（风格、可读性、小建议）
@@ -482,6 +482,12 @@ function normalizeIssue(raw) {
 function renderMarkdown(result) {
   const lines = [];
   if (result.summary) lines.push(`**变更概述**：${result.summary}`, "");
+  if (result.issues.length > 0) {
+    const critical = result.issues.filter((i) => i.severity === "critical").length;
+    const important = result.issues.filter((i) => i.severity === "important").length;
+    const normal = result.issues.filter((i) => i.severity === "normal").length;
+    lines.push(`🔍 **发现 ${result.issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
+  }
   for (const sev of SEVERITIES) {
     const group = result.issues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
