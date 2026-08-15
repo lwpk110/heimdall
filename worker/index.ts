@@ -4,6 +4,11 @@ import { parseReview, renderMarkdown, ReviewResult, validateIssueLines } from ".
 import { SYSTEM_PROMPT } from "../src/review/prompt";
 import { filterByMinSeverity, filterFiles, parseHeimdallConfig, RepoConfig } from "../src/review/repo-config";
 
+// 模块级去重缓存：记录最近已审查的 PR+commit（缓解 serverless 并发竞态；
+// 同一实例内并发请求共享，跨实例依赖 GitHub 侧 review/status 检查兜底）
+const recentReviews = new Map<string, { sha: string; time: number }>();
+const REVIEW_CACHE_MS = 60000;
+
 interface Env {
   GITHUB_APP_ID: string;
   GITHUB_PRIVATE_KEY: string;
@@ -144,6 +149,13 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已审查过，跳过重复审查`);
     return;
   }
+  // 跨触发即时去重：模块级缓存（并发竞态缓解，无需额外权限）
+  const cacheKey = `${owner}/${repo}#${pullNumber}`;
+  const cached = recentReviews.get(cacheKey);
+  if (headSha && cached && cached.sha === headSha && Date.now() - cached.time < REVIEW_CACHE_MS) {
+    console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 短时间内已审查，跳过`);
+    return;
+  }
   // 跨触发即时去重：已有 heimdall/reviewed 成功状态则跳过（防自动+手动竞态重复）
   if (headSha) {
     const stRes = await gh(`/repos/${owner}/${repo}/commits/${headSha}/status`);
@@ -228,13 +240,14 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
 
   // 4. 标记该 commit 已审查（供跨触发去重，防自动+手动竞态重复）
   if (headSha) {
+    recentReviews.set(cacheKey, { sha: headSha, time: Date.now() });
     try {
       await gh(`/repos/${owner}/${repo}/statuses/${headSha}`, {
         method: "POST",
         body: { state: "success", context: "heimdall/reviewed", description: "已完成海姆达尔审查" },
       });
     } catch (err) {
-      console.error("设置已审查状态失败：", err instanceof Error ? err.message : err);
+      console.error("设置已审查状态失败（不影响审查）：", err instanceof Error ? err.message : err);
     }
   }
 }
