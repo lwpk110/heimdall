@@ -325,7 +325,13 @@ npm run worker:deploy     # 部署到 Cloudflare
 | M3 | v0.3 | `heimdall.yml` 配置化 + 语言/文件过滤 + 按需触发 | 可定制、可接入真实团队流程 | ✅ 已交付 |
 | M4 | v1.0 | 阻止合并 + 白名单 + 审查缓存去重 | 达到可正式使用的产品完成度 | ✅ 已交付 |
 
-> 当前状态（2026-08）：M1–M4 全部交付。共享审查内核已具备：变更摘要与严重度分级、行内评论（结构化 JSON 解析 + 失败降级）、`heimdall.yml` 配置化（include/exclude / min_severity / instructions / manual_reviewers / block_on_critical）、按需审查 `@heimdall review`、同 commit 去重、`heimdall/critical` 状态检查阻断合并；AI 提供方支持 Claude / GPT / Gemini / 本地模型，支持统一 `AI_API_KEY` + `AI_BASE_URL` 走代理网关；三形态（GitHub Actions / Cloudflare Worker / Probot 自托管）共享同一内核，核心逻辑带单元测试，Worker 支持 GitHub Actions 自动发布。
+> 当前状态（2026-08）：M1–M4 全部交付，审查质量经批评家量化评估达 85+。共享审查内核已具备：
+> - **审查能力**：变更摘要 + 严重度分级 + 文件表格 + 问题汇总 + 折叠块；行内评论（定位到具体行，含行动式说明 + 修复建议 + diff 修改建议）；同 commit 三重去重；`heimdall/critical` 状态阻断合并
+> - **配置化**：`.github/heimdall.yml`（include/exclude / min_severity / instructions / manual_reviewers / block_on_critical / auto_review）
+> - **触发**：默认**仅按需审查**（PR 打开不自动审，`@CoderHeimdall` 才审，对齐 Copilot 按需模式）；配 `auto_review: true` 开启自动
+> - **模型自由**：Claude / GPT / Gemini / 本地模型（Ollama / vLLM），支持统一 `AI_API_KEY` + `AI_BASE_URL` 走代理网关，`AI_MODEL` 可配置
+> - **质量迭代**：审查 prompt 经 v1→v7 迭代（维度增强、硬规则、必查清单、few-shot、发现累积），批评家 agent 量化评估达 85+，覆盖敏感字段传导、信任边界、伪实现/时序攻击等深度问题
+> - **三形态**：GitHub Actions / Cloudflare Worker / Probot 自托管共享同一内核，核心逻辑带单元测试，Worker 支持 GitHub Actions 自动发布
 
 ---
 

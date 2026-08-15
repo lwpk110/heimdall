@@ -49,8 +49,8 @@ npm run build     # TypeScript 严格模式编译，应无报错
 
 - TypeScript `strict` 模式，禁止 `any`（如有特殊必要需注释说明）。
 - 核心审查逻辑放在 `src/review/`，三种部署形态共享同一套内核。
-- 海姆达尔人设 prompt 的唯一来源是 `src/review/prompt.ts`，改动需三处同步生效。
-- 涉及 `heimdall-review.yml` 或 Worker 的改动，请同步更新 README 对应章节。
+- 海姆达尔人设 prompt 的唯一来源是 `src/review/prompt.ts`（Worker 共享），Actions 模式需同步 `scripts/heimdall-review.js` 中的副本。
+- 涉及 `template/heimdall-review.yml`、Worker 或 prompt 的改动，请同步更新 README 对应章节。
 
 ## 测试与验证
 
