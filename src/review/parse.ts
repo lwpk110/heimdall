@@ -30,7 +30,7 @@ const SEVERITY_LABELS: Record<Severity, string> = {
 export function parseReview(raw: string): ReviewResult | null {
   for (const candidate of extractJsonCandidates(raw)) {
     try {
-      const parsed = JSON.parse(candidate);
+      const parsed = parseLooseJson(candidate);
       const result = normalizeResult(parsed);
       if (result) return result;
     } catch {
@@ -38,6 +38,36 @@ export function parseReview(raw: string): ReviewResult | null {
     }
   }
   return null;
+}
+
+/** 宽松 JSON 解析：修复字符串字面量中的未转义换行（LLM 输出常见），其余严格 */
+function parseLooseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    let out = "";
+    let inStr = false;
+    for (let i = 0; i < text.length; i++) {
+      const c = text[i];
+      if (inStr) {
+        if (c === "\\") {
+          out += c + (text[i + 1] ?? "");
+          i++;
+          continue;
+        }
+        if (c === '"') inStr = false;
+        if (c === "\n" || c === "\r") {
+          out += "\\n";
+          continue;
+        }
+        out += c;
+      } else {
+        if (c === '"') inStr = true;
+        out += c;
+      }
+    }
+    return JSON.parse(out);
+  }
 }
 
 function extractJsonCandidates(raw: string): string[] {
