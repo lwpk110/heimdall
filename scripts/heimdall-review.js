@@ -74,8 +74,14 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加德彩�
 
 【输出格式】
 - 只输出一个 JSON 对象，不要输出任何其他文字、不要使用 markdown、不要用代码块包裹，直接输出原始 JSON
-- 严格遵循结构：{"summary": "…", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "JWT 未校验 exp，存在越权风险", "suggestion": "在签名验证后校验 exp，过期即拒绝"}]}
-- severity 只允许 critical / important / normal`;
+- 严格遵循结构：{"summary": "…", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "…", "suggestion": "…", "diff": "…"}]}
+- severity 只允许 critical / important / normal
+
+【常见漏报问题的报告示例】（遇到同类情况必须上报）
+敏感字段传导（整对象进响应导致 passwordHash 等泄露）：
+{"severity":"critical","file":"demo.ts","line":12,"comment":"应将 User 对象的敏感字段（passwordHash）排除，仅返回公开 DTO。当前 post.author 直接引用完整 User 对象，passwordHash 会随响应泄露给客户端。","suggestion":"定义公开 AuthorDTO（只含 id/username），映射后再赋值给 post.author","diff":"- post.author = author;\n+ post.author = toPublicAuthor(author);"}
+未定义引用（调用不存在的函数/方法）：
+{"severity":"critical","file":"demo.ts","line":20,"comment":"sign 函数未定义，此处调用会抛 ReferenceError。应定义 sign 方法或注入签名依赖。","suggestion":"导入 jsonwebtoken 并注入 sign，或声明方法","diff":"- return this.sign({uid:user.id}, this.key, '7d');\n+ return jwt.sign({uid:user.id}, this.key, {expiresIn:'1h'});"}`;
 
 const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
 // pull_request 事件与 issue_comment（PR 评论 @heimdall review）事件都支持
