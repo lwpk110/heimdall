@@ -366,6 +366,8 @@ heimdall/
 │       ├── parse.ts            # 结构化解析 + 报告渲染 + 宽松 JSON 容错
 │       └── repo-config.ts      # heimdall.yml 解析 / 过滤 / 阈值 / 白名单
 ├── test/                       # 单元测试（node:test）
+├── .claude/agents/critic.md    # 审查质量批评家 agent（量化评估 ≥85）
+├── AGENTS.md                   # AI Agent 项目指南
 ├── Dockerfile                  # 可选：自托管服务
 ├── CONTRIBUTING.md             # 贡献指南
 ├── PRD.md                      # 产品需求文档
