@@ -495,7 +495,9 @@ function lineIndent(line) {
   return m ? m[1].length : -1;
 }
 
-function parseObject(lines, start, parentIndent) {
+function parseObject(lines, start, parentIndent, depth) {
+  if (depth === undefined) depth = 0;
+  if (depth > 50) return { value: {}, next: start }; // 深度保护：避免病态嵌套导致栈溢出
   const obj = {};
   let i = start;
   while (i < lines.length) {
@@ -511,10 +513,22 @@ function parseObject(lines, start, parentIndent) {
 
     if (rest === "|") {
       const block = [];
-      while (i < lines.length && lines[i].trim() !== "" && lineIndent(lines[i]) > indent) {
-        block.push(lines[i].replace(/^\s+/, ""));
-        i++;
+      // 块文本：保留内部空行，直到遇到缩进 <= 键的行（或结尾）才结束
+      while (i < lines.length) {
+        const li = lineIndent(lines[i]);
+        if (li === -1) {
+          block.push("");
+          i++;
+          continue;
+        }
+        if (li > indent) {
+          block.push(lines[i].replace(/^\s+/, ""));
+          i++;
+          continue;
+        }
+        break;
       }
+      while (block.length && block[block.length - 1] === "") block.pop();
       if (block.length) obj[key] = block.join("\n");
       continue;
     }
@@ -524,19 +538,31 @@ function parseObject(lines, start, parentIndent) {
       continue;
     }
     if (rest === "") {
-      if (i < lines.length) {
-        const nIndent = lineIndent(lines[i]);
-        if (nIndent > indent && /^\s*-/.test(lines[i])) {
-          const items = [];
-          while (i < lines.length && lineIndent(lines[i]) > indent && /^\s*-/.test(lines[i])) {
-            items.push(lines[i].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
-            i++;
-          }
-          obj[key] = items;
+      // 先跳过空行与注释，再判断子值是列表还是嵌套 map
+      let j = i;
+      while (j < lines.length) {
+        const t = lines[j].trim();
+        if (t === "" || t.startsWith("#")) {
+          j++;
           continue;
         }
-        if (nIndent > indent && /^[A-Za-z_][\w-]*:/.test(lines[i].trim())) {
-          const sub = parseObject(lines, i, indent);
+        break;
+      }
+      if (j < lines.length) {
+        const nIndent = lineIndent(lines[j]);
+        if (nIndent > indent && /^\s*-/.test(lines[j])) {
+          const items = [];
+          let k = j;
+          while (k < lines.length && lineIndent(lines[k]) > indent && /^\s*-/.test(lines[k])) {
+            items.push(lines[k].replace(/^\s*-\s*/, "").trim().replace(/^["']|["']$/g, ""));
+            k++;
+          }
+          obj[key] = items;
+          i = k;
+          continue;
+        }
+        if (nIndent > indent && /^[A-Za-z_][\w-]*:/.test(lines[j].trim())) {
+          const sub = parseObject(lines, j, indent, depth + 1);
           obj[key] = sub.value;
           i = sub.next;
           continue;

@@ -96,6 +96,27 @@ test("filterByMinSeverity：按阈值过滤", () => {
   assert.equal(filterByMinSeverity(result, undefined).issues.length, 3);
 });
 
+test("parseHeimdallConfig：observability 嵌套块解析", () => {
+  const cfg = parseHeimdallConfig(
+    "observability:\n  logs:\n    enabled: false\n    invocation_logs: true\n"
+  );
+  assert.deepEqual(cfg.observability, { logs: { enabled: false, invocation_logs: true } });
+});
+
+test("parseHeimdallConfig：键与嵌套子块之间的空行/注释不丢失嵌套", () => {
+  const withBlank = parseHeimdallConfig("observability:\n\n  logs:\n    enabled: false\n");
+  assert.deepEqual(withBlank.observability, { logs: { enabled: false } });
+  const withComment = parseHeimdallConfig(
+    "observability:\n  # 可观测性\n  logs:\n    enabled: false\n"
+  );
+  assert.deepEqual(withComment.observability, { logs: { enabled: false } });
+});
+
+test("parseHeimdallConfig：块文本保留内部空行", () => {
+  const cfg = parseHeimdallConfig("instructions: |\n  第一行\n\n  第三行\n");
+  assert.equal(cfg.instructions, "第一行\n\n第三行");
+});
+
 test("parseHeimdallConfig：行尾注释剥离与 @ 前缀清洗", () => {
   const yaml = `
 block_on_critical: true # 阻断合并

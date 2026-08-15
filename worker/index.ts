@@ -166,11 +166,8 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
   const reviewSpan = obs.start();
   obs.info("review.start", "开始审查");
 
-  // 1. 读取配置与完整文件列表
-  const [repoConfig, files] = await Promise.all([
-    loadRepoConfig(gh, owner, repo),
-    fetchAllFiles(gh, owner, repo, pullNumber),
-  ]);
+  // 1. 读取配置并应用仓库级可观测性覆盖；跳过场景不再拉取文件列表
+  const repoConfig = await loadRepoConfig(gh, owner, repo);
   obs = applyLogOverrides(obs, repoConfig.observability?.logs);
   if (isAuto && repoConfig.auto_review !== true) {
     obs.invocation("review.skip", "默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）", { reason: "not_auto_review" });
@@ -180,6 +177,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     obs.invocation("review.skip", `@${triggerAuthor} 不在 manual_reviewers 白名单，忽略触发`, { reason: "reviewer_not_whitelisted", author: triggerAuthor });
     return;
   }
+  const files = await fetchAllFiles(gh, owner, repo, pullNumber);
 
   // 同 commit 去重：自动或手动触发时，该 commit 已审查过则跳过
   let headSha = payload.pull_request?.head?.sha;

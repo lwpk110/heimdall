@@ -44,6 +44,7 @@
 mkdir -p .github/workflows scripts
 cp template/heimdall-review.yml .github/workflows/
 cp scripts/heimdall-review.js scripts/
+cp scripts/observability.js scripts/
 ```
 
 Then in the target repo **Settings → Secrets and variables → Actions** add:
@@ -59,7 +60,7 @@ Open a PR and comment `@CoderHeimdall` (or `@heimdall`) to see the review. For a
 | Purpose | Single repo, quick | Team / productized distribution |
 | GitHub App needed | No | Yes |
 | Server | No | No (Cloudflare edge) |
-| Install | Copy 2 files | Install GitHub App |
+| Install | Copy 3 files | Install GitHub App |
 | Cost | Free | Free tier (Pro for large diffs) |
 
 - **Just want an AI reviewer for your repo** → Mode A, 2 minutes
@@ -268,12 +269,12 @@ observability:
     invocation_logs: true
 ```
 
-`warn`/`error` are **always emitted** (a failure is never hidden); `enabled: false` silences only the info/debug detail.
+`enabled: false` silences only the info/debug detail — `warn`/`error` are not gated by `enabled` (a failure is never hidden by it). `warn` is still filtered by `HEIMDALL_LOG_LEVEL` (at `error`, `warn` is dropped); `error` is always emitted.
 
 **Key events** — diagnose "why was this PR skipped/failed":
-- `review.skip` with `reason`: `draft_pr` · `bot_pr` · `not_auto_review` · `reviewer_not_whitelisted` · `dup_review` · `dup_cache` · `dup_status` · `missing_api_key` · `empty_diff` · `non_pr_event` · `no_trigger_comment`
-- `review.error` with `reason`: `llm_error` · `parse_failed` · `post_inline_failed`
-- Stage events: `review.start` → `review.config` → `review.diff` (debug) → `llm.start`/`llm.done` → `review.parse` → `review.post` → `review.complete`
+- `review.skip` with `reason`: `draft_pr` · `bot_pr` · `not_auto_review` · `reviewer_not_whitelisted` · `dup_review` · `dup_cache` · `dup_status` · `missing_api_key` · `non_pr_event` · `no_trigger_comment`
+- `review.error` with `reason`: `llm_error` · `post_inline_failed`
+- Stage events: `review.start` → `review.config` → `review.diff` (debug) → `llm.done` → `review.parse` → `review.post`, summarized by `review.invocation`
 - `review.invocation` — one summary line per review (outcome, `durationMs`, issue counts)
 
 Example line:

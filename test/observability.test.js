@@ -83,6 +83,18 @@ test("enabled=false：info 被关，error 与 invocation 仍输出", () => {
   assert.deepEqual(logs.map((l) => JSON.parse(l.line).event), ["b", "c"]);
 });
 
+test("enabled=false + level=error：warn 被过滤，error 与 invocation 仍输出", () => {
+  const logs = captureLogs(() => {
+    const obs = createObserver({ mode: "test", enabled: false, level: "error" });
+    obs.info("a", "i");
+    obs.debug("b", "d");
+    obs.warn("c", "w");
+    obs.error("d", "e");
+    obs.invocation("f", "s");
+  });
+  assert.deepEqual(logs.map((l) => JSON.parse(l.line).event), ["d", "f"]);
+});
+
 test("invocationLogs=false：invocation 被关，error 仍输出", () => {
   const logs = captureLogs(() => {
     const obs = createObserver({ mode: "test", invocationLogs: false });
