@@ -1,0 +1,293 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Heimdall — AI Code Review Bot for GitHub</title>
+<meta name="description" content="Heimdall: an AI-powered GitHub code review bot. Model-agnostic, self-hostable, with actionable inline comments and diff suggestions." />
+<style>
+  :root {
+    --bg: #070b14;
+    --bg2: #0b1220;
+    --card: rgba(255,255,255,.04);
+    --border: rgba(255,255,255,.09);
+    --text: #e6ecf7;
+    --muted: #9aa7bd;
+    --accent: #22d3ee;
+    --violet: #8b5cf6;
+    --pink: #f472b6;
+    --green: #34d399;
+    --yellow: #fbbf24;
+    --red: #f87171;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: radial-gradient(1200px 600px at 80% -10%, rgba(139,92,246,.18), transparent 60%),
+                radial-gradient(900px 500px at 10% 110%, rgba(34,211,238,.12), transparent 60%),
+                var(--bg);
+    color: var(--text);
+    font-family: "Inter", -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.6;
+    overflow-x: hidden;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 0 24px; }
+
+  /* ---------- Nav ---------- */
+  nav {
+    position: sticky; top: 0; z-index: 50;
+    backdrop-filter: blur(12px);
+    background: rgba(7,11,20,.7);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .wrap { display: flex; align-items: center; justify-content: space-between; height: 62px; }
+  .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; letter-spacing: .3px; }
+  .logo .mark { width: 28px; height: 28px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--violet), var(--pink));
+    display: grid; place-items: center; color: #fff; font-size: 15px; }
+  nav a { color: var(--muted); text-decoration: none; font-size: 14px; transition: color .2s; }
+  nav a:hover { color: var(--text); }
+  .nav-links { display: flex; gap: 24px; align-items: center; }
+  .btn {
+    display: inline-flex; align-items: center; gap: 8px; padding: 9px 18px;
+    border-radius: 10px; border: 1px solid var(--border); background: var(--card);
+    color: var(--text); text-decoration: none; font-size: 14px; font-weight: 500;
+    transition: transform .15s, box-shadow .2s, border-color .2s; cursor: pointer;
+  }
+  .btn:hover { transform: translateY(-2px); box-shadow: 0 8px 30px rgba(34,211,238,.15); border-color: rgba(34,211,238,.4); }
+  .btn-primary {
+    background: linear-gradient(135deg, var(--accent), var(--violet));
+    border: none; color: #fff; box-shadow: 0 4px 20px rgba(139,92,246,.3);
+  }
+  .btn-primary:hover { box-shadow: 0 8px 34px rgba(139,92,246,.45); }
+
+  /* ---------- Hero ---------- */
+  .hero { padding: 100px 0 70px; text-align: center; position: relative; }
+  .hero h1 {
+    font-size: clamp(34px, 6vw, 62px); font-weight: 800; letter-spacing: -1px; line-height: 1.12;
+    background: linear-gradient(90deg, var(--accent), var(--violet), var(--pink));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-bottom: 20px;
+  }
+  .hero p.lead { font-size: clamp(16px, 2.2vw, 20px); color: var(--muted); max-width: 720px; margin: 0 auto 30px; }
+  .hero .cta { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
+  .hero .code {
+    margin: 44px auto 0; max-width: 620px; text-align: left;
+    background: rgba(0,0,0,.4); border: 1px solid var(--border); border-radius: 12px;
+    padding: 18px 22px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px;
+    color: var(--muted); overflow-x: auto;
+  }
+  .code .c { color: #64748b; }
+  .code .g { color: var(--green); }
+
+  /* ---------- Bifrost beam ---------- */
+  .beam { height: 3px; width: 100%; position: relative; overflow: hidden;
+    background: linear-gradient(90deg, transparent, var(--accent), var(--violet), var(--pink), transparent);
+    filter: drop-shadow(0 0 12px rgba(139,92,246,.6));
+    animation: beamflow 6s linear infinite; background-size: 200% 100%;
+  }
+  @keyframes beamflow { to { background-position: -200% 0; } }
+
+  /* ---------- Sections ---------- */
+  section { padding: 70px 0; }
+  .section-title { text-align: center; font-size: clamp(24px, 3.4vw, 34px); font-weight: 700; margin-bottom: 10px; }
+  .section-sub { text-align: center; color: var(--muted); max-width: 640px; margin: 0 auto 44px; }
+
+  /* ---------- Feature grid ---------- */
+  .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 18px; }
+  .card {
+    background: var(--card); border: 1px solid var(--border); border-radius: 14px;
+    padding: 24px; transition: transform .2s, border-color .2s, box-shadow .2s;
+  }
+  .card:hover { transform: translateY(-4px); border-color: rgba(139,92,246,.4); box-shadow: 0 12px 40px rgba(139,92,246,.12); }
+  .card .ico { font-size: 26px; margin-bottom: 12px; }
+  .card h3 { font-size: 17px; margin-bottom: 8px; }
+  .card p { font-size: 14px; color: var(--muted); }
+
+  /* ---------- Report demo ---------- */
+  .report {
+    background: rgba(0,0,0,.45); border: 1px solid var(--border); border-radius: 14px;
+    padding: 24px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px;
+    max-width: 780px; margin: 0 auto; text-align: left; overflow-x: auto;
+  }
+  .report .hl-accent { color: var(--accent); font-weight: 600; }
+  .report .hl-crit { color: var(--red); }
+  .report .hl-ok { color: var(--green); }
+  .report .hl-warn { color: var(--yellow); }
+  .report .dim { color: #64748b; }
+  .report .row { padding: 2px 0; }
+  .report .fold { color: var(--violet); }
+
+  /* ---------- Copilot rant ---------- */
+  .rant { max-width: 780px; margin: 0 auto; text-align: left;
+    background: linear-gradient(135deg, rgba(139,92,246,.1), rgba(34,211,238,.06));
+    border: 1px solid rgba(139,92,246,.3); border-radius: 14px; padding: 26px 28px; }
+  .rant h3 { font-size: 18px; margin-bottom: 14px; }
+  .rant p { font-size: 15px; color: var(--muted); margin-bottom: 10px; }
+  .rant b { color: var(--text); }
+  .rant .list { margin-top: 14px; }
+  .rant .list div { margin: 6px 0; font-size: 14px; }
+
+  /* ---------- Code block (setup) ---------- */
+  pre.code-lg {
+    background: rgba(0,0,0,.45); border: 1px solid var(--border); border-radius: 14px;
+    padding: 22px 24px; font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 13px;
+    overflow-x: auto; margin: 0 auto; max-width: 780px; text-align: left; line-height: 1.7;
+  }
+  pre.code-lg .c { color: #64748b; }
+  pre.code-lg .p { color: var(--violet); }
+  pre.code-lg .s { color: var(--green); }
+
+  /* ---------- Footer ---------- */
+  footer { border-top: 1px solid var(--border); padding: 34px 0 40px; text-align: center; color: var(--muted); font-size: 14px; }
+  footer a { color: var(--accent); text-decoration: none; }
+  footer a:hover { text-decoration: underline; }
+
+  /* ---------- Animations ---------- */
+  .fade-in { opacity: 0; transform: translateY(18px); transition: opacity .7s, transform .7s; }
+  .fade-in.visible { opacity: 1; transform: none; }
+
+  /* ---------- Responsive ---------- */
+  @media (max-width: 640px) {
+    .nav-links .hide-m { display: none; }
+    .hero { padding-top: 70px; }
+  }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="logo"><span class="mark">⚡</span> Heimdall</div>
+    <div class="nav-links">
+      <a href="#features" class="hide-m">Features</a>
+      <a href="#report" class="hide-m">Report</a>
+      <a href="#rant" class="hide-m">Why</a>
+      <a href="#quickstart" class="hide-m">Quick Start</a>
+      <a class="btn btn-primary" href="https://github.com/lwpk110/heimdall" target="_blank" rel="noopener">View on GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<div class="beam"></div>
+
+<header class="hero wrap fade-in">
+  <h1>Guard your pull requests<br />with an AI that sees everything</h1>
+  <p class="lead">
+    Heimdall is an AI code review bot for GitHub. Model-agnostic, self-hostable, and always on call —
+    it reviews every PR with severity grading, inline comments, and executable diff suggestions.
+  </p>
+  <div class="cta">
+    <a class="btn btn-primary" href="#quickstart">Get started in 2 minutes</a>
+    <a class="btn" href="https://github.com/lwpk110/heimdall#readme" target="_blank" rel="noopener">Read the docs</a>
+  </div>
+  <div class="code">
+    <span class="c"># add an AI reviewer to any repo — copy 2 files</span><br />
+    <span class="g">cp</span> template/heimdall-review.yml .github/workflows/<br />
+    <span class="g">cp</span> scripts/heimdall-review.js scripts/<br />
+    <span class="c"># then in any PR: comment</span> <span class="g">@CoderHeimdall</span>
+  </div>
+</header>
+
+<section id="features">
+  <div class="wrap">
+    <h2 class="section-title fade-in">Everything Copilot Review should be</h2>
+    <p class="section-sub fade-in">Model freedom, private deployment, and reports you can actually act on.</p>
+    <div class="grid">
+      <div class="card fade-in"><div class="ico">🧠</div><h3>Model freedom</h3><p>Claude, GPT, Gemini, or a local Ollama/vLLM — you pick. One unified <code>AI_API_KEY</code> + <code>AI_BASE_URL</code>.</p></div>
+      <div class="card fade-in"><div class="ico">🎯</div><h3>Inline comments + diff</h3><p>Every issue pinned to its code line, with an actionable title, a fix suggestion, and an executable diff (even 1-Click Suggestions).</p></div>
+      <div class="card fade-in"><div class="ico">🛡️</div><h3>On-demand review</h3><p>PRs stay quiet until you say the word — comment <code>@CoderHeimdall</code>. Or set <code>auto_review: true</code>.</p></div>
+      <div class="card fade-in"><div class="ico">🔍</div><h3>Deep checks</h3><p>Trust-boundary, sensitive-field leakage, fake implementations, N+1, swallowed exceptions — caught and graded.</p></div>
+      <div class="card fade-in"><div class="ico">🌐</div><h3>Bilingual reports</h3><p><code>REVIEW_LANGUAGE</code> = en (default), zh, or bilingual. One bot, every team.</p></div>
+      <div class="card fade-in"><div class="ico">🧩</div><h3>Configurable</h3><p><code>.github/heimdall.yml</code> — include/exclude files, min severity, custom instructions, whitelist, block-on-critical.</p></div>
+      <div class="card fade-in"><div class="ico">🚀</div><h3>Three deployment modes</h3><p>GitHub Actions (per-repo), Cloudflare Workers (installable App), or Probot self-hosted — code stays on your infra.</p></div>
+      <div class="card fade-in"><div class="ico">🔁</div><h3>No spam</h3><p>Triple dedup means one review per commit. No duplicate review dumps.</p></div>
+    </div>
+  </div>
+</section>
+
+<div class="beam"></div>
+
+<section id="report">
+  <div class="wrap">
+    <h2 class="section-title fade-in">A review report you can act on</h2>
+    <p class="section-sub fade-in">Change summary, severity table, focus areas, verification steps — then pinned inline comments with diffs.</p>
+    <div class="report fade-in">
+      <div class="row hl-accent">## 🛡️ Heimdall · Code Review Report</div>
+      <div class="row dim">Change Summary: 2 files, <span class="hl-ok">+214</span> / <span class="hl-crit">-58</span></div>
+      <div class="row dim">│ src/auth.ts &nbsp;&nbsp; <span class="hl-ok">+120</span> / <span class="hl-crit">-30</span></div>
+      <div class="row dim">│ src/api.ts &nbsp;&nbsp;&nbsp; <span class="hl-ok">+94</span> / <span class="hl-crit">-28</span></div>
+      <div class="row"><br/>### 📖 Overview</div>
+      <div class="row dim">Refactors auth to JWT. Risk: token expiry not verified, no tests yet. Suggest adding expiry + a rejection test.</div>
+      <div class="row"><br/><span class="fold">🔍 3 issues (critical 1 · important 1 · normal 1)</span></div>
+      <div class="row"><span class="fold">▸ 🤖 Review Comments</span></div>
+      <div class="row">&nbsp;&nbsp;<span class="hl-crit">🔴</span> <span class="hl-accent">src/auth.ts:45</span> — Trust boundary: reload authoritative data server-side</div>
+      <div class="row">&nbsp;&nbsp;<span class="hl-warn">🟡</span> <span class="hl-accent">src/api.ts:88</span> — Use Promise.all — current N+1 query</div>
+      <div class="row">&nbsp;&nbsp;<span class="hl-ok">🟢</span> <span class="hl-accent">src/utils.ts:12</span> — Immutable data structure, nice</div>
+      <div class="row"><span class="fold">▸ ℹ️ Review Info</span></div>
+      <div class="row dim">&nbsp;&nbsp;Files reviewed: 2 · Change size: +214 / -58</div>
+    </div>
+  </div>
+</section>
+
+<div class="beam"></div>
+
+<section id="rant">
+  <div class="wrap">
+    <h2 class="section-title fade-in">🥲 Why does Heimdall exist?</h2>
+    <div class="rant fade-in">
+      <h3>A story of one too many "unilateral contract changes"</h3>
+      <p>One fine morning, Copilot arbitrarily revised its subscription deal: models quietly downgraded, token limits shrank, choices vanished overnight. And that <b>$10/month fee? Collected right on schedule</b> — yet your Code Review quota <b>reliably ran out by mid-month</b>, greeting you with <i>"Quota limit reached. Please upgrade."</i></p>
+      <p>By month's end: <b>paid full price, ran out of tokens halfway through, zero Code Review when PRs hit</b> — and helped another earnings report.</p>
+      <div class="list">
+        <div>🧠 <b>Total model freedom</b> — Claude, GPT, Gemini, or self-hosted. 100% your call.</div>
+        <div>💳 <b>Pay for what you use</b> — your own key or gateway. No $10 all-you-can-eat that starves you.</div>
+        <div>🌉 <b>Unshakeable bridge</b> — the Bifrost Guardian never changes terms mid-flight.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="beam"></div>
+
+<section id="quickstart">
+  <div class="wrap">
+    <h2 class="section-title fade-in">Get started in 2 minutes</h2>
+    <p class="section-sub fade-in">Pick a mode — Actions for a single repo, Workers for a team-wide installable bot.</p>
+    <pre class="code-lg fade-in"><span class="c"># Mode A — add an AI reviewer to any repo</span>
+<span class="p">$</span> mkdir -p .github/workflows scripts
+<span class="p">$</span> cp template/heimdall-review.yml .github/workflows/
+<span class="p">$</span> cp scripts/heimdall-review.js scripts/
+<span class="p">$</span> <span class="c"># add AI_API_KEY (or ANTHROPIC_API_KEY) as a repo secret</span>
+
+<span class="c"># in any PR, comment:</span>
+<span class="s">@CoderHeimdall</span>
+
+<span class="c"># want auto-review? add .github/heimdall.yml with:</span>
+<span class="s">auto_review: true</span></pre>
+    <div style="text-align:center;margin-top:26px">
+      <a class="btn btn-primary" href="https://github.com/lwpk110/heimdall#readme" target="_blank" rel="noopener">Read the full setup guide</a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <p><b>Heimdall</b> — the Bifrost guardian of your code. MIT licensed · built open source.</p>
+    <p style="margin-top:8px">
+      <a href="https://github.com/lwpk110/heimdall" target="_blank" rel="noopener">GitHub</a> ·
+      <a href="https://github.com/lwpk110/heimdall#readme" target="_blank" rel="noopener">README</a> ·
+      <a href="https://github.com/lwpk110/heimdall/blob/main/README.zh-CN.md" target="_blank" rel="noopener">中文文档</a>
+    </p>
+  </div>
+</footer>
+
+<script>
+  // Reveal-on-scroll
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.fade-in').forEach(el => io.observe(el));
+</script>
+</body>
+</html>
