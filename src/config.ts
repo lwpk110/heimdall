@@ -1,3 +1,5 @@
+import { ReviewLanguage } from "./review/parse";
+
 export type AiProvider = "anthropic" | "openai" | "gemini";
 
 const MODEL_DEFAULTS: Record<AiProvider, string> = {
@@ -13,6 +15,8 @@ export interface AppConfig {
   apiKey: string;
   /** 统一 AI_BASE_URL（代理网关）；未设置时回退到提供方专属 base url / 官方默认 */
   baseUrl: string;
+  /** 审查报告语言：en（默认）/ zh / bilingual */
+  language: ReviewLanguage;
   /** 发送给 AI 的 diff 最大字符数 */
   maxDiffLength: number;
 }
@@ -21,8 +25,13 @@ export function loadConfig(): AppConfig {
   const provider = (process.env.AI_PROVIDER ?? "anthropic").toLowerCase();
   if (!(provider in MODEL_DEFAULTS)) {
     throw new Error(
-      `不支持的 AI_PROVIDER: ${provider}（仅支持 anthropic | openai | gemini）`
+      `Unsupported AI_PROVIDER: ${provider} (only anthropic | openai | gemini)`
     );
+  }
+
+  const language = (process.env.REVIEW_LANGUAGE ?? "en").toLowerCase();
+  if (language !== "en" && language !== "zh" && language !== "bilingual") {
+    throw new Error(`Unsupported REVIEW_LANGUAGE: ${language} (en | zh | bilingual)`);
   }
 
   return {
@@ -30,6 +39,7 @@ export function loadConfig(): AppConfig {
     model: process.env.AI_MODEL ?? MODEL_DEFAULTS[provider as AiProvider],
     apiKey: process.env.AI_API_KEY ?? "",
     baseUrl: trimTrailingSlash(process.env.AI_BASE_URL ?? ""),
+    language: language as ReviewLanguage,
     maxDiffLength: Number(process.env.MAX_DIFF_LENGTH ?? 40000),
   };
 }
