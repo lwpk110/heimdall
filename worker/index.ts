@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
-import { parseReview, renderMarkdown, ReviewResult } from "../src/review/parse";
+import { parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "../src/review/parse";
 import { SYSTEM_PROMPT } from "../src/review/prompt";
 import { filterByMinSeverity, filterFiles, parseHeimdallConfig, RepoConfig } from "../src/review/repo-config";
 
@@ -178,6 +178,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     const filtered = parsed ? filterByMinSeverity(parsed, repoConfig.min_severity) : null;
     criticalCount = filtered ? filtered.issues.filter((i) => i.severity === "critical").length : 0;
     if (filtered) {
+      filtered.issues = validateIssueLines(filtered.issues, reviewable);
       report = renderReport(stats, renderMarkdown(filtered));
       inlineComments = filtered.issues
         .filter((i) => i.line > 0)

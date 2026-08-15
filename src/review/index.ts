@@ -1,7 +1,7 @@
 import { Context } from "probot";
 import { loadConfig } from "../config";
 import { generateReview } from "./providers";
-import { parseReview, renderMarkdown, ReviewResult } from "./parse";
+import { parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "./parse";
 import { SYSTEM_PROMPT } from "./prompt";
 import { filterByMinSeverity, filterFiles, loadRepoConfigFromOctokit, RepoConfig } from "./repo-config";
 
@@ -75,7 +75,8 @@ export async function runReview(target: ReviewTarget): Promise<void> {
     await setCriticalStatus(target, headSha, filtered.issues.filter((i) => i.severity === "critical").length);
   }
 
-  await postInlineReview(target, stats, filtered);
+  // 校验行号：不在 diff 新增行集合的 line 归 0，避免行内评论 422 / 错位
+  await postInlineReview(target, stats, { ...filtered, issues: validateIssueLines(filtered.issues, reviewable) });
 }
 
 export function prParams(target: ReviewTarget): {
