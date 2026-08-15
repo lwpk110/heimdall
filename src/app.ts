@@ -66,5 +66,6 @@ function isAllowedManualReviewer(whitelist: string[] | undefined, login: string 
   // 未配置白名单表示不限；白名单为空数组时同样放开
   if (!whitelist || whitelist.length === 0) return true;
   if (!login) return false;
-  return whitelist.some((name) => name.toLowerCase() === login.toLowerCase());
+  const cleanLogin = login.replace(/^@/, "").trim().toLowerCase();
+  return whitelist.some((name) => name.replace(/^@/, "").trim().toLowerCase() === cleanLogin);
 }

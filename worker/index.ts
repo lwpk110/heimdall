@@ -1,6 +1,6 @@
 import { Buffer } from "node:buffer";
 import { createHmac, timingSafeEqual, createPrivateKey, sign } from "node:crypto";
-import { parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "../src/review/parse";
+import { formatSafeDiff, parseReview, renderMarkdown, ReviewResult, validateIssueLines } from "../src/review/parse";
 import { SYSTEM_PROMPT } from "../src/review/prompt";
 import { filterByMinSeverity, filterFiles, parseHeimdallConfig, RepoConfig } from "../src/review/repo-config";
 
@@ -105,6 +105,25 @@ async function getInstallationToken(env: Env, installationId: number): Promise<s
   return data.token;
 }
 
+async function fetchAllFiles(
+  gh: (path: string, options?: { method?: string; body?: unknown }) => Promise<Response>,
+  owner: string,
+  repo: string,
+  pullNumber: number
+): Promise<Array<{ filename: string; patch?: string; additions?: number; deletions?: number }>> {
+  const allFiles: Array<{ filename: string; patch?: string; additions?: number; deletions?: number }> = [];
+  let page = 1;
+  while (true) {
+    const res = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100&page=${page}`);
+    if (!res.ok) throw new Error(`读取文件列表失败：${res.status}`);
+    const batch = (await res.json()) as Array<{ filename: string; patch?: string; additions?: number; deletions?: number }>;
+    allFiles.push(...batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return allFiles;
+}
+
 async function runWebhookReview(env: Env, payload: any, pullNumber: number, triggerAuthor?: string, isAuto = false): Promise<void> {
   const owner = payload.repository.owner.login;
   const repo = payload.repository.name;
@@ -122,10 +141,10 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
-  // 1. 并行读取配置与文件列表
-  const [repoConfig, filesRes] = await Promise.all([
+  // 1. 读取配置与完整文件列表
+  const [repoConfig, files] = await Promise.all([
     loadRepoConfig(gh, owner, repo),
-    gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`),
+    fetchAllFiles(gh, owner, repo, pullNumber),
   ]);
   if (isAuto && repoConfig.auto_review !== true) {
     console.log("海姆达尔：默认仅按需审查，跳过自动审查（可在 PR 评论发 @CoderHeimdall 手动触发；配置 auto_review: true 开启自动）");
@@ -167,20 +186,9 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
       }
     }
   }
-  if (!filesRes.ok) throw new Error(`读取文件列表失败：${filesRes.status}`);
-  const files = (await filesRes.json()) as Array<{
-    filename: string;
-    patch?: string;
-    additions?: number;
-    deletions?: number;
-  }>;
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
-  const diff = reviewable
-    .filter((f) => f.patch)
-    .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
-    .join("\n\n")
-    .slice(0, Number(env.MAX_DIFF_LENGTH ?? 40000));
+  const diff = formatSafeDiff(reviewable, Number(env.MAX_DIFF_LENGTH ?? 40000));
 
   if (!diff.trim()) {
     await postReview(gh, owner, repo, pullNumber, renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
@@ -202,7 +210,7 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     criticalCount = filtered ? filtered.issues.filter((i) => i.severity === "critical").length : 0;
     if (filtered) {
       filtered.issues = validateIssueLines(filtered.issues, reviewable);
-      report = renderReport(stats, renderMarkdown(filtered));
+      report = renderReport(stats, renderMarkdown(filtered), filtered);
       inlineComments = filtered.issues
         .filter((i) => i.line > 0)
         .map((i) => ({
@@ -212,7 +220,11 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
           body: [
             `${severityLabel(i.severity)} **${i.comment}**`,
             i.suggestion ? `\n\n**修复建议**：${i.suggestion}` : "",
-            i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
+            i.suggestionCode
+              ? `\n\n\`\`\`suggestion\n${i.suggestionCode}\n\`\`\``
+              : i.diff
+              ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\``
+              : "",
           ].join(""),
         }));
     } else {
@@ -281,7 +293,8 @@ async function loadRepoConfig(gh: (path: string, options?: { method?: string; bo
 function isAllowedManualReviewer(whitelist: string[] | undefined, login: string | undefined): boolean {
   if (!whitelist || whitelist.length === 0) return true;
   if (!login) return false;
-  return whitelist.some((name) => name.toLowerCase() === login.toLowerCase());
+  const cleanLogin = login.replace(/^@/, "").trim().toLowerCase();
+  return whitelist.some((name) => name.replace(/^@/, "").trim().toLowerCase() === cleanLogin);
 }
 
 async function hasExistingReview(
@@ -315,23 +328,43 @@ function diffStats(files: Array<{ filename?: string; additions?: number; deletio
   };
 }
 
-function renderReport(stats: DiffStats, content: string): string {
+function renderReport(stats: DiffStats, content: string, result?: ReviewResult): string {
+  const issues = result?.issues ?? [];
+  const critical = issues.filter((i) => i.severity === "critical").length;
+  const important = issues.filter((i) => i.severity === "important").length;
+  const normal = issues.filter((i) => i.severity === "normal").length;
+
+  const statusBadge = critical > 0 ? "🔴 **阻断合并**" : important > 0 ? "🟡 **需关注**" : "🟢 **可以通过**";
+  const issueCounts = `🔴 **${critical} Critical** · 🟡 **${important} Important** · 🟢 **${normal} Normal**`;
+  const scale = `🟢 +${stats.additions} / 🔴 -${stats.deletions} (${stats.files} 文件)`;
+
   const table =
     stats.fileDetails.length > 0
-      ? "\n\n| 文件 | 变更 |\n| --- | --- |\n" +
-        stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`).join("\n")
+      ? ["\n### 📝 文件变更明细", "", "| 文件 | 变更规模 |", "| --- | :---: |"]
+          .concat(stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`))
+          .join("\n")
       : "";
+
   const info = `
 <details>
-<summary>ℹ️ 审查信息</summary>
+<summary>ℹ️ 审查环境与元数据</summary>
 
-- **审查文件**：${stats.files} 个
+- **审查文件**：${stats.files} 个文件
 - **变更规模**：🟢 +${stats.additions} / 🔴 -${stats.deletions} 行
+- **守护者人设**：Heimdall Bifrost Guard v0.1
 
 </details>`;
-  return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，🟢 +${stats.additions} / 🔴 -${stats.deletions} 行。${table}
+  return `## 🛡️ 海姆达尔 (Heimdall) · 代码审查报告
+> *"看穿每一行代码，守护合并之门"*
+
+| 审查状态 | 风险分布 | 变更规模 |
+| :---: | :---: | :---: |
+| ${statusBadge} | ${issueCounts} | ${scale} |
+
+${table}
+
+---
 
 ${content}
 

@@ -93,8 +93,14 @@ function setValue(cfg: RepoConfig, key: keyof RepoConfig, value: unknown): void 
       break;
     case "include":
     case "exclude":
-    case "manual_reviewers":
       if (Array.isArray(value)) cfg[key] = value.map(String);
+      break;
+    case "manual_reviewers":
+      if (Array.isArray(value)) {
+        cfg.manual_reviewers = value
+          .map((v) => String(v).replace(/^@/, "").trim())
+          .filter(Boolean);
+      }
       break;
     case "min_severity":
       if (value === "critical" || value === "important" || value === "normal") {
@@ -114,11 +120,15 @@ function setValue(cfg: RepoConfig, key: keyof RepoConfig, value: unknown): void 
 }
 
 function parseScalar(raw: string): string | number | boolean {
+  // 若包含带引号的文本，保留内容
   if (/^["'].*["']$/.test(raw)) return raw.slice(1, -1);
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  if (/^-?\d+(\.\d+)?$/.test(raw)) return Number(raw);
-  return raw;
+  // 剥离未加引号标量的行尾注释 (如 `true # comment`)
+  const clean = raw.replace(/\s*#.*$/, "").trim();
+  if (/^["'].*["']$/.test(clean)) return clean.slice(1, -1);
+  if (clean === "true") return true;
+  if (clean === "false") return false;
+  if (/^-?\d+(\.\d+)?$/.test(clean)) return Number(clean);
+  return clean;
 }
 
 /** glob 匹配：支持 *（跨目录用 **）、**、?；无目录分隔符的模式同时匹配文件名 */

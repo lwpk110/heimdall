@@ -70,7 +70,7 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加德彩�
   - **一致性要求**：diff 必须与 comment/suggestion 的修复手段一致（如建议用 bcrypt，diff 就必须是 bcrypt，不得用 sha256 等次优方案）
   - **行为变更标注**：若修复会改变现有行为（返回值、抛错、API 契约），在 comment 末尾标注"此改动会改变 X 行为，需同步更新调用方与测试"
   - **验证建议**：suggestion 或 comment 中给出可操作的验证/测试手段（如密钥缺失时启动失败的用例、并发结果保序、异常传播断言）
-  - 能定位到 diff 新增行的必须给真实行号（line），行号必须精确对应问题所在代码在 diff 中的实际行号；宁可填 0（进报告）也不要标错行
+  - 能定位到 diff 新增行的必须给真实行号（line），**line 必须等于问题代码在 PR 修改后的目标文件（New File）中的实际行号**；宁可填 0（进报告）也不要标错行
 - 严重度判定：
   - critical：会导致 bug / 安全事故 / 数据错误（如硬编码密钥、SQL 注入、明文密码比较、信任客户端可控字段、敏感信息泄露）
   - important：可靠性 / 性能隐患、明显可改进（错误处理缺失如吞异常、输入未校验、N+1 查询、伪实现等属于 important，非 critical）
@@ -82,14 +82,33 @@ const SYSTEM_PROMPT = `你是"海姆达尔"（Heimdall）——阿斯加德彩�
 
 【输出格式】
 - 只输出一个 JSON 对象，不要输出任何其他文字、不要使用 markdown、不要用代码块包裹，直接输出原始 JSON
-- 严格遵循结构：{"summary": "…", "issues": [{"severity": "critical", "file": "src/auth.ts", "line": 45, "comment": "…", "suggestion": "…", "diff": "…"}]}
+- 严格遵循结构：
+  {
+    "summary": "变更概述说明...",
+    "focus_areas": ["🔒 安全性：JWT 签发机制", "⚙️ 核心逻辑：路由权限拦截"],
+    "verification_steps": ["Token 过期测试：验证签发的 JWT 是否在设定时间后被正确拒绝"],
+    "issues": [
+      {
+        "severity": "critical",
+        "file": "src/auth.ts",
+        "line": 45,
+        "comment": "行动式说明...",
+        "suggestion": "文字修复建议...",
+        "suggestion_code": "const token = jwt.sign({ uid: user.id }, this.key, { expiresIn: '1h' });",
+        "diff": "- const token = jwt.sign({ uid: user.id }, this.key);\n+ const token = jwt.sign({ uid: user.id }, this.key, { expiresIn: '1h' });"
+      }
+    ]
+  }
 - severity 只允许 critical / important / normal
+- focus_areas：提取 1-3 个主要涉及的风险领域标签（带 Emoji，如 🔒 安全性、⚙️ 核心逻辑、⚡ 性能、🌐 接口契约）
+- verification_steps：给出 1-3 个针对本次变更建议补充的回归测试项或验证步骤
+- suggestion_code（可选）：对于单行/小范围修改，提供直接替换的新代码片段（无需 diff 前缀，供 GitHub 1-Click Suggestion 使用）
 
 【常见漏报问题的报告示例】（遇到同类情况必须上报）
 敏感字段传导（整对象进响应导致 passwordHash 等泄露）：
-{"severity":"critical","file":"demo.ts","line":12,"comment":"应将 User 对象的敏感字段（passwordHash）排除，仅返回公开 DTO。当前 post.author 直接引用完整 User 对象，passwordHash 会随响应泄露给客户端。","suggestion":"定义公开 AuthorDTO（只含 id/username），映射后再赋值给 post.author","diff":"- post.author = author;\n+ post.author = toPublicAuthor(author);"}
+{"summary":"重构响应模型","focus_areas":["🔒 安全性：敏感数据暴露"],"verification_steps":["接口断言测试：验证 API 响应 json 不含 passwordHash"],"issues":[{"severity":"critical","file":"demo.ts","line":12,"comment":"应将 User 对象的敏感字段（passwordHash）排除，仅返回公开 DTO。当前 post.author 直接引用完整 User 对象，passwordHash 会随响应泄露给客户端。","suggestion":"定义公开 AuthorDTO（只含 id/username），映射后再赋值给 post.author","suggestion_code":"post.author = toPublicAuthor(author);","diff":"- post.author = author;\n+ post.author = toPublicAuthor(author);"}]}
 未定义引用（调用不存在的函数/方法）：
-{"severity":"critical","file":"demo.ts","line":20,"comment":"sign 函数未定义，此处调用会抛 ReferenceError。应定义 sign 方法或注入签名依赖。","suggestion":"导入 jsonwebtoken 并注入 sign，或声明方法","diff":"- return this.sign({uid:user.id}, this.key, '7d');\n+ return jwt.sign({uid:user.id}, this.key, {expiresIn:'1h'});"}`;
+{"summary":"更新签名逻辑","focus_areas":["⚙️ 核心逻辑：未定义方法"],"verification_steps":["运行单元测试：验证 sign 方法被正确定义与调用"],"issues":[{"severity":"critical","file":"demo.ts","line":20,"comment":"sign 函数未定义，此处调用会抛 ReferenceError。应定义 sign 方法或注入签名依赖。","suggestion":"导入 jsonwebtoken 并注入 sign，或声明方法","suggestion_code":"return jwt.sign({ uid: user.id }, this.key, { expiresIn: '1h' });","diff":"- return this.sign({uid:user.id}, this.key, '7d');\n+ return jwt.sign({uid:user.id}, this.key, {expiresIn:'1h'});"}]}`;
 
 const event = JSON.parse(fs.readFileSync(GITHUB_EVENT_PATH, "utf8"));
 // pull_request 事件与 issue_comment（PR 评论 @heimdall review）事件都支持
@@ -146,12 +165,79 @@ async function gh(path, options = {}) {
   return res.json();
 }
 
+async function fetchTimeout(url, options, ms = 60000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchAllFiles() {
+  const allFiles = [];
+  let page = 1;
+  while (true) {
+    const batch = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100&page=${page}`);
+    allFiles.push(...batch);
+    if (batch.length < 100) break;
+    page++;
+  }
+  return allFiles;
+}
+
+function formatSafeDiff(files, maxDiffLength) {
+  const blocks = [];
+  let currentLen = 0;
+  let truncated = false;
+
+  for (const f of files) {
+    if (!f.patch) continue;
+    const header = `### ${f.filename}\n\`\`\`diff\n`;
+    const footer = `\n\`\`\``;
+
+    if (currentLen + header.length + footer.length > maxDiffLength) {
+      truncated = true;
+      break;
+    }
+
+    let fileContent = header;
+    currentLen += header.length;
+    const patchLines = String(f.patch).split("\n");
+
+    let linesAdded = 0;
+    for (const line of patchLines) {
+      const lineLen = line.length + 1;
+      if (currentLen + lineLen + footer.length > maxDiffLength) {
+        truncated = true;
+        break;
+      }
+      fileContent += (linesAdded > 0 ? "\n" : "") + line;
+      currentLen += lineLen;
+      linesAdded++;
+    }
+
+    fileContent += footer;
+    currentLen += footer.length;
+    blocks.push(fileContent);
+
+    if (truncated) break;
+  }
+
+  let result = blocks.join("\n\n");
+  if (truncated && result.trim()) {
+    result += "\n\n[⚠️ Diff 规模过大，已在文件/行边界处自动截断以适应 LLM 上下文]";
+  }
+  return result;
+}
+
 async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   if (provider === "openai") {
     const apiKey = AI_API_KEY || OPENAI_API_KEY;
     if (!apiKey) throw new Error("缺少 OPENAI_API_KEY");
     const baseUrl = (AI_BASE_URL || OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetchTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -172,7 +258,7 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
     const apiKey = AI_API_KEY || GEMINI_API_KEY;
     if (!apiKey) throw new Error("缺少 GEMINI_API_KEY");
     const baseUrl = (AI_BASE_URL || GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
-    const res = await fetch(
+    const res = await fetchTimeout(
       `${baseUrl}/v1beta/models/${AI_MODEL || "gemini-2.0-flash"}:generateContent`,
       {
         method: "POST",
@@ -191,7 +277,7 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   const apiKey = AI_API_KEY || ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("缺少 ANTHROPIC_API_KEY");
   const baseUrl = (AI_BASE_URL || ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
-  const res = await fetch(`${baseUrl}/v1/messages`, {
+  const res = await fetchTimeout(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -208,7 +294,6 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
   });
   if (!res.ok) throw new Error(`Anthropic API 失败：${res.status} ${await res.text()}`);
   const data = await res.json();
-  // content 可能含 thinking 块，需取 type 为 text 的块
   return (data.content || []).find((b) => b.type === "text")?.text || "";
 }
 
@@ -251,14 +336,10 @@ async function main() {
       return;
     }
   }
-  const files = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}/files?per_page=100`);
+  const files = await fetchAllFiles();
   const reviewable = filterFiles(files, repoConfig);
   const stats = diffStats(reviewable);
-  const diff = reviewable
-    .filter((f) => f.patch)
-    .map((f) => `### ${f.filename}\n\`\`\`diff\n${f.patch}\n\`\`\``)
-    .join("\n\n")
-    .slice(0, Number(MAX_DIFF_LENGTH));
+  const diff = formatSafeDiff(reviewable, Number(MAX_DIFF_LENGTH));
 
   if (!diff.trim()) {
     await postReview(renderReport(stats, "海姆达尔：本次 PR 没有可审查的代码变更。"));
@@ -292,18 +373,13 @@ async function main() {
 
   // block_on_critical：存在 critical 时设置状态阻断合并，无则置成功
   if (repoConfig.block_on_critical) {
-    let headSha = event.pull_request?.head?.sha;
-    if (!headSha) {
-      const prData = await gh(`/repos/${owner}/${repo}/pulls/${pr.number}`);
-      headSha = prData.head?.sha;
-    }
     if (headSha) {
       const criticalCount = filtered.issues.filter((i) => i.severity === "critical").length;
       await setCriticalStatus(headSha, criticalCount);
     }
   }
 
-  const body = renderReport(stats, renderMarkdown(filtered));
+  const body = renderReport(stats, renderMarkdown(filtered), filtered);
   const comments = filtered.issues
     .filter((i) => i.line > 0)
     .map((i) => ({
@@ -313,21 +389,37 @@ async function main() {
       body: [
         `${severityLabel(i.severity)} **${i.comment}**`,
         i.suggestion ? `\n\n**修复建议**：${i.suggestion}` : "",
-        i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
+        i.suggestionCode
+          ? `\n\n\`\`\`suggestion\n${i.suggestionCode}\n\`\`\``
+          : i.diff
+          ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\``
+          : "",
       ].join(""),
     }));
 
   if (comments.length === 0) {
     await postReview(body);
-    return;
+  } else {
+    try {
+      await postReviewWithComments(body, comments);
+    } catch (err) {
+      console.error("行内评论发布失败，降级为整体报告：", err.message);
+      await postReview(body);
+    }
   }
 
-  try {
-    await postReviewWithComments(body, comments);
-  } catch (err) {
-    console.error("行内评论发布失败，降级为整体报告：", err.message);
-    await postReview(body);
+  // 标记该 commit 已完成海姆达尔审查
+  if (headSha) {
+    try {
+      await gh(`/repos/${owner}/${repo}/statuses/${headSha}`, {
+        method: "POST",
+        body: { state: "success", context: "heimdall/reviewed", description: "已完成海姆达尔审查" },
+      });
+    } catch (err) {
+      // 忽略权限缺失
+    }
   }
+
   console.log("海姆达尔审查完成");
 }
 
@@ -438,7 +530,8 @@ function filterFiles(files, cfg) {
 function isAllowedManualReviewer(whitelist, login) {
   if (!whitelist || whitelist.length === 0) return true;
   if (!login) return false;
-  return whitelist.some((name) => String(name).toLowerCase() === String(login).toLowerCase());
+  const cleanLogin = String(login).replace(/^@/, "").trim().toLowerCase();
+  return whitelist.some((name) => String(name).replace(/^@/, "").trim().toLowerCase() === cleanLogin);
 }
 
 const SEVERITY_RANK = { critical: 3, important: 2, normal: 1 };
@@ -446,7 +539,12 @@ const SEVERITY_RANK = { critical: 3, important: 2, normal: 1 };
 function filterByMinSeverity(result, minSeverity) {
   if (!minSeverity) return result;
   const min = SEVERITY_RANK[minSeverity];
-  return { summary: result.summary, issues: result.issues.filter((i) => SEVERITY_RANK[i.severity] >= min) };
+  return {
+    summary: result.summary,
+    focusAreas: result.focusAreas,
+    verificationSteps: result.verificationSteps,
+    issues: result.issues.filter((i) => SEVERITY_RANK[i.severity] >= min),
+  };
 }
 
 // 解析 diff patch，返回新增行行号集合，用于校验 LLM 行号
@@ -504,11 +602,22 @@ function parseReview(raw) {
   for (const c of candidates) {
     try {
       const data = parseLooseJson(c);
-      const issues = Array.isArray(data.issues)
-        ? data.issues.map(normalizeIssue).filter(Boolean)
-        : [];
       if (typeof data === "object" && data !== null) {
-        return { summary: typeof data.summary === "string" ? data.summary : "", issues };
+        const issues = Array.isArray(data.issues)
+          ? data.issues.map(normalizeIssue).filter(Boolean)
+          : [];
+        const rawFocus = Array.isArray(data.focus_areas) ? data.focus_areas : Array.isArray(data.focusAreas) ? data.focusAreas : [];
+        const focusAreas = rawFocus.map(String).filter(Boolean);
+        const rawSteps = Array.isArray(data.verification_steps) ? data.verification_steps : Array.isArray(data.verificationSteps) ? data.verificationSteps : [];
+        const verificationSteps = rawSteps.map(String).filter(Boolean);
+
+        const result = {
+          summary: typeof data.summary === "string" ? data.summary : "",
+          issues,
+        };
+        if (focusAreas.length > 0) result.focusAreas = focusAreas;
+        if (verificationSteps.length > 0) result.verificationSteps = verificationSteps;
+        return result;
       }
     } catch (err) {
       // 该候选解析失败，尝试下一个
@@ -569,31 +678,51 @@ function normalizeIssue(raw) {
   const line = typeof raw.line === "number" ? Math.floor(raw.line) : 0;
   const severity = SEVERITIES.includes(raw.severity) ? raw.severity : "important";
   const suggestion = typeof raw.suggestion === "string" ? raw.suggestion.trim() : "";
+  const suggestionCode = typeof raw.suggestion_code === "string"
+    ? raw.suggestion_code.trim()
+    : typeof raw.suggestionCode === "string"
+    ? raw.suggestionCode.trim()
+    : "";
   const diff = typeof raw.diff === "string" ? raw.diff.trim() : "";
   if (!file || !comment) return null;
   const issue = { severity, file, line: line > 0 ? line : 0, comment };
   if (suggestion) issue.suggestion = suggestion;
+  if (suggestionCode) issue.suggestionCode = suggestionCode;
   if (diff) issue.diff = diff;
   return issue;
 }
 
 function renderMarkdown(result) {
   const lines = [];
-  if (result.summary) lines.push(`**变更概述**：${result.summary}`, "");
-  if (result.issues.length > 0) {
-    const critical = result.issues.filter((i) => i.severity === "critical").length;
-    const important = result.issues.filter((i) => i.severity === "important").length;
-    const normal = result.issues.filter((i) => i.severity === "normal").length;
-    lines.push(`🔍 **发现 ${result.issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
+  if (result.summary) {
+    lines.push(`### 📖 变更概述`, result.summary, "");
   }
-  lines.push("<details>", "<summary>🤖 审查评论</summary>", "");
+
+  if (result.focusAreas && result.focusAreas.length > 0) {
+    lines.push(`#### 🎯 重点复核领域`);
+    for (const area of result.focusAreas) {
+      lines.push(`- ${area}`);
+    }
+    lines.push("");
+  }
+
+  if (result.verificationSteps && result.verificationSteps.length > 0) {
+    lines.push(`### 🧪 建议回归测试清单`);
+    for (const step of result.verificationSteps) {
+      lines.push(`- [ ] ${step}`);
+    }
+    lines.push("");
+  }
+
+  lines.push("<details>", "<summary>🔍 审查评论与问题清单</summary>", "");
 
   const inlineIssues = result.issues.filter((i) => i.line > 0);
   const orphanIssues = result.issues.filter((i) => i.line === 0);
   if (inlineIssues.length > 0) {
-    lines.push("| 严重度 | 位置 | 问题 |", "| --- | --- | --- |");
+    lines.push("| 严重度 | 位置 | 问题 | 修复支持 |", "| :---: | --- | --- | :---: |");
     for (const i of inlineIssues) {
-      lines.push(`| ${SEVERITY_ICONS[i.severity]} | \`${i.file}:${i.line}\` | ${i.comment} |`);
+      const fixStatus = i.suggestionCode ? "⚡ 1-Click Suggestion" : i.diff ? "💡 附 Diff 代码" : "📝 说明";
+      lines.push(`| ${SEVERITY_ICONS[i.severity]} | \`${i.file}:${i.line}\` | ${i.comment} | ${fixStatus} |`);
     }
     lines.push("");
   }
@@ -604,7 +733,11 @@ function renderMarkdown(result) {
     for (const i of group) {
       lines.push(`- **\`${i.file}\`**：${i.comment}`);
       if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
-      if (i.diff) {
+      if (i.suggestionCode) {
+        lines.push("", "  ```suggestion");
+        for (const dl of String(i.suggestionCode).split("\n")) lines.push(dl ? "  " + dl : "  ");
+        lines.push("  ```");
+      } else if (i.diff) {
         lines.push("", "  ```diff");
         for (const dl of String(i.diff).split("\n")) lines.push(dl ? "  " + dl : "  ");
         lines.push("  ```");
@@ -647,23 +780,41 @@ function diffStats(files) {
   };
 }
 
-function renderReport(stats, content) {
+function renderReport(stats, content, result) {
+  const issues = (result && result.issues) || [];
+  const critical = issues.filter((i) => i.severity === "critical").length;
+  const important = issues.filter((i) => i.severity === "important").length;
+  const normal = issues.filter((i) => i.severity === "normal").length;
+
+  const statusBadge = critical > 0 ? "🔴 **阻断合并**" : important > 0 ? "🟡 **需关注**" : "🟢 **可以通过**";
+  const issueCounts = `🔴 **${critical} Critical** · 🟡 **${important} Important** · 🟢 **${normal} Normal**`;
+  const scale = `🟢 +${stats.additions} / 🔴 -${stats.deletions} (${stats.files} 文件)`;
+
   const table =
     stats.fileDetails && stats.fileDetails.length > 0
-      ? "\n\n| 文件 | 变更 |\n| --- | --- |\n" +
+      ? "\n### 📝 文件变更明细\n\n| 文件 | 变更规模 |\n| --- | :---: |\n" +
         stats.fileDetails.map((f) => `| \`${f.filename}\` | 🟢 +${f.additions} / 🔴 -${f.deletions} |`).join("\n")
       : "";
   const info = `
 <details>
-<summary>ℹ️ 审查信息</summary>
+<summary>ℹ️ 审查环境与元数据</summary>
 
-- **审查文件**：${stats.files} 个
+- **审查文件**：${stats.files} 个文件
 - **变更规模**：🟢 +${stats.additions} / 🔴 -${stats.deletions} 行
+- **守护者人设**：Heimdall Bifrost Guard v0.1
 
 </details>`;
-  return `## 海姆达尔 · 代码审查报告
 
-**变更摘要**：本次 PR 共改动 ${stats.files} 个文件，🟢 +${stats.additions} / 🔴 -${stats.deletions} 行。${table}
+  return `## 🛡️ 海姆达尔 (Heimdall) · 代码审查报告
+> *"看穿每一行代码，守护合并之门"*
+
+| 审查状态 | 风险分布 | 变更规模 |
+| :---: | :---: | :---: |
+| ${statusBadge} | ${issueCounts} | ${scale} |
+
+${table}
+
+---
 
 ${content}
 
