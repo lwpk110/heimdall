@@ -277,7 +277,11 @@ async function main() {
       path: i.file,
       line: i.line,
       side: "RIGHT",
-      body: `${severityLabel(i.severity)} ${i.comment}${i.suggestion ? `\n\n> 💡 ${i.suggestion}` : ""}`,
+      body: [
+        `${severityLabel(i.severity)} ${i.comment}`,
+        i.suggestion ? `\n> 💡 建议：${i.suggestion}` : "",
+        i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
+      ].join(""),
     }));
 
   if (comments.length === 0) {
