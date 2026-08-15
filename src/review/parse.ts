@@ -97,7 +97,7 @@ function normalizeIssue(raw: unknown): ReviewIssue | null {
   return issue;
 }
 
-/** 把结构化结果渲染为 markdown 报告（不含头部统计行） */
+/** 把结构化结果渲染为 markdown 报告（不含头部统计行，含折叠块） */
 export function renderMarkdown(result: ReviewResult): string {
   const { summary, issues } = result;
   const lines: string[] = [];
@@ -108,6 +108,7 @@ export function renderMarkdown(result: ReviewResult): string {
     const normal = issues.filter((i) => i.severity === "normal").length;
     lines.push(`🔍 **发现 ${issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
   }
+  lines.push("<details>", "<summary>🤖 审查评论</summary>", "");
   for (const sev of SEVERITIES) {
     const group = issues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
@@ -123,6 +124,7 @@ export function renderMarkdown(result: ReviewResult): string {
   if (issues.length === 0) {
     lines.push("未发现明显问题。", "");
   }
+  lines.push("</details>");
   return lines.join("\n").trim();
 }
 
