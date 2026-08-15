@@ -75,13 +75,13 @@ test("renderMarkdown：按严重度分组，line 0 不带行号", () => {
     ],
   };
   const md = renderMarkdown(result);
-  assert.ok(md.includes("### 🔴 严重问题"));
+  // line>0 的问题进表格汇总
+  assert.ok(md.includes("| 严重度 | 位置 | 问题 |"));
+  assert.ok(md.includes("🔴"));
+  assert.ok(md.includes("`b.ts:5`"));
+  // line=0 的问题在分级标题下
   assert.ok(md.includes("### 🟢 良好实践"));
-  // critical 在 normal 之前
-  assert.ok(md.indexOf("🔴") < md.indexOf("🟢"));
-  // line 0 的文件不带行号
   assert.ok(md.includes("`a.ts`**：风格"));
-  assert.ok(md.includes("`b.ts:5`**：严重"));
 });
 
 test("parseReview：suggestion 字段解析与渲染", () => {

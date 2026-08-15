@@ -94,14 +94,29 @@ function normalizeResult(data: unknown): ReviewResult | null {
   if (typeof data !== "object" || data === null) return null;
   const obj = data as { summary?: unknown; issues?: unknown };
   const issues = Array.isArray(obj.issues)
-    ? obj.issues
-        .map(normalizeIssue)
-        .filter((i): i is ReviewIssue => i !== null)
+    ? dedupeIssues(
+        obj.issues
+          .map(normalizeIssue)
+          .filter((i): i is ReviewIssue => i !== null)
+      )
     : [];
   return {
     summary: typeof obj.summary === "string" ? obj.summary : "",
     issues,
   };
+}
+
+/** 去重：同一 文件+行号+严重度 的重复问题只保留一条（LLM 偶发重复输出） */
+function dedupeIssues(issues: ReviewIssue[]): ReviewIssue[] {
+  const seen = new Set<string>();
+  const out: ReviewIssue[] = [];
+  for (const issue of issues) {
+    const key = `${issue.file}:${issue.line}:${issue.severity}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(issue);
+  }
+  return out;
 }
 
 function normalizeIssue(raw: unknown): ReviewIssue | null {
@@ -139,18 +154,26 @@ export function renderMarkdown(result: ReviewResult): string {
     lines.push(`🔍 **发现 ${issues.length} 个问题**（critical ${critical} / important ${important} / normal ${normal}）`, "");
   }
   lines.push("<details>", "<summary>🤖 审查评论</summary>", "");
+
+  // line>0 的问题用表格汇总（详情在行内评论）；line=0 的问题列表展示完整详情
+  const inlineIssues = issues.filter((i) => i.line > 0);
+  const orphanIssues = issues.filter((i) => i.line === 0);
+  if (inlineIssues.length > 0) {
+    lines.push("| 严重度 | 位置 | 问题 |", "| --- | --- | --- |");
+    for (const i of inlineIssues) {
+      const loc = `\`${i.file}:${i.line}\``;
+      lines.push(`| ${SEVERITY_ICONS[i.severity]} | ${loc} | ${i.comment} |`);
+    }
+    lines.push("");
+  }
   for (const sev of SEVERITIES) {
-    const group = issues.filter((i) => i.severity === sev);
+    const group = orphanIssues.filter((i) => i.severity === sev);
     if (group.length === 0) continue;
     lines.push(`### ${SEVERITY_LABELS[sev]}`, "");
     for (const i of group) {
-      const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
-      lines.push(`- **\`${loc}\`**：${i.comment}`);
-      // line>0 的问题详情在行内评论（避免重复）；line=0 无法行内，body 展示完整详情
-      if (i.line === 0) {
-        if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
-        if (i.diff) lines.push("", "  ```diff", ...indentDiff(i.diff), "  ```");
-      }
+      lines.push(`- **\`${i.file}\`**：${i.comment}`);
+      if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
+      if (i.diff) lines.push("", "  ```diff", ...indentDiff(i.diff), "  ```");
     }
     lines.push("");
   }
@@ -160,6 +183,12 @@ export function renderMarkdown(result: ReviewResult): string {
   lines.push("</details>");
   return lines.join("\n").trim();
 }
+
+const SEVERITY_ICONS: Record<Severity, string> = {
+  critical: "🔴",
+  important: "🟡",
+  normal: "🟢",
+};
 
 function indentDiff(diff: string): string[] {
   return diff.split("\n").map((line) => (line ? "  " + line : "  "));
