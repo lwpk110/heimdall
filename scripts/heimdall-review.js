@@ -171,6 +171,7 @@ async function generateReview(diff, systemPrompt = SYSTEM_PROMPT) {
       model: AI_MODEL || "claude-sonnet-4-5-20250929",
       max_tokens: 4096,
       system: systemPrompt,
+      thinking: { type: "disabled" },
       messages: [{ role: "user", content: diff }],
     }),
   });
