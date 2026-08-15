@@ -117,8 +117,11 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
       body: options.body ? JSON.stringify(options.body) : undefined,
     });
 
-  // 1. 读取配置与文件列表
-  const repoConfig = await loadRepoConfig(gh, owner, repo);
+  // 1. 并行读取配置与文件列表
+  const [repoConfig, filesRes] = await Promise.all([
+    loadRepoConfig(gh, owner, repo),
+    gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`),
+  ]);
   if (isAuto && repoConfig.auto_review === false) {
     console.log("海姆达尔：auto_review 已关闭，跳过自动审查（可在 PR 评论发 @heimdall review 手动触发）");
     return;
@@ -141,7 +144,6 @@ async function runWebhookReview(env: Env, payload: any, pullNumber: number, trig
     console.log(`海姆达尔：commit ${headSha.slice(0, 8)} 已审查过，跳过重复审查`);
     return;
   }
-  const filesRes = await gh(`/repos/${owner}/${repo}/pulls/${pullNumber}/files?per_page=100`);
   if (!filesRes.ok) throw new Error(`读取文件列表失败：${filesRes.status}`);
   const files = (await filesRes.json()) as Array<{
     filename: string;
@@ -316,6 +318,17 @@ async function postReview(
   if (!res.ok) throw new Error(`发布 review 失败：${res.status} ${await res.text()}`);
 }
 
+/** AI 调用带超时，避免占用 waitUntil 时间窗导致审查被终止 */
+async function fetchTimeout(url: string, options: RequestInit, ms = 25000): Promise<Response> {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function generateReview(env: Env, diff: string, systemPrompt: string = SYSTEM_PROMPT): Promise<string> {
   const provider = (env.AI_PROVIDER ?? "anthropic").toLowerCase();
 
@@ -323,7 +336,7 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
     const apiKey = env.AI_API_KEY || env.OPENAI_API_KEY;
     if (!apiKey) throw new Error("缺少 OPENAI_API_KEY");
     const baseUrl = (env.AI_BASE_URL || env.OPENAI_BASE_URL || "https://api.openai.com/v1").replace(/\/+$/, "");
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetchTimeout(`${baseUrl}/chat/completions`, {
       method: "POST",
       headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
       body: JSON.stringify({
@@ -344,7 +357,7 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
     const apiKey = env.AI_API_KEY || env.GEMINI_API_KEY;
     if (!apiKey) throw new Error("缺少 GEMINI_API_KEY");
     const baseUrl = (env.AI_BASE_URL || env.GEMINI_BASE_URL || "https://generativelanguage.googleapis.com").replace(/\/+$/, "");
-    const res = await fetch(
+    const res = await fetchTimeout(
       `${baseUrl}/v1beta/models/${env.AI_MODEL ?? "gemini-2.0-flash"}:generateContent`,
       {
         method: "POST",
@@ -365,7 +378,7 @@ async function generateReview(env: Env, diff: string, systemPrompt: string = SYS
   const apiKey = env.AI_API_KEY || env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error("缺少 ANTHROPIC_API_KEY");
   const baseUrl = (env.AI_BASE_URL || env.ANTHROPIC_BASE_URL || "https://api.anthropic.com").replace(/\/+$/, "");
-  const res = await fetch(`${baseUrl}/v1/messages`, {
+  const res = await fetchTimeout(`${baseUrl}/v1/messages`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
