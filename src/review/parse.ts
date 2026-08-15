@@ -5,7 +5,10 @@ export interface ReviewIssue {
   file: string;
   /** 新文件行号；0 表示无法定位，仅进报告不生成行内评论 */
   line: number;
+  /** 问题描述：说明问题与影响 */
   comment: string;
+  /** 具体修复建议（可选，可含改法/代码思路） */
+  suggestion?: string;
 }
 
 export interface ReviewResult {
@@ -78,8 +81,15 @@ function normalizeIssue(raw: unknown): ReviewIssue | null {
   const file = typeof item.file === "string" ? item.file.trim() : "";
   const comment = typeof item.comment === "string" ? item.comment.trim() : "";
   const line = typeof item.line === "number" ? Math.floor(item.line) : 0;
+  const suggestion = typeof item.suggestion === "string" ? item.suggestion.trim() : "";
   if (!file || !comment) return null;
-  return { severity, file, line: line > 0 ? line : 0, comment };
+  return {
+    severity,
+    file,
+    line: line > 0 ? line : 0,
+    comment,
+    ...(suggestion ? { suggestion } : {}),
+  };
 }
 
 /** 把结构化结果渲染为 markdown 报告（不含头部统计行） */
@@ -93,7 +103,8 @@ export function renderMarkdown(result: ReviewResult): string {
     lines.push(`### ${SEVERITY_LABELS[sev]}`, "");
     for (const i of group) {
       const loc = i.file + (i.line > 0 ? `:${i.line}` : "");
-      lines.push(`- \`${loc}\`：${i.comment}`);
+      lines.push(`- **\`${loc}\`**：${i.comment}`);
+      if (i.suggestion) lines.push(`  > 💡 建议：${i.suggestion}`);
     }
     lines.push("");
   }
