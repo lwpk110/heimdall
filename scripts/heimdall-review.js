@@ -290,8 +290,8 @@ async function main() {
       line: i.line,
       side: "RIGHT",
       body: [
-        `${severityLabel(i.severity)} ${i.comment}`,
-        i.suggestion ? `\n> 💡 建议：${i.suggestion}` : "",
+        `${severityLabel(i.severity)} **${i.comment}**`,
+        i.suggestion ? `\n\n**修复建议**：${i.suggestion}` : "",
         i.diff ? `\n\n\`\`\`diff\n${i.diff}\n\`\`\`` : "",
       ].join(""),
     }));
