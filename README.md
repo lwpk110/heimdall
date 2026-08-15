@@ -1,421 +1,348 @@
-# 海姆达尔 (Heimdall)
+# Heimdall (海姆达尔)
 
-> "我能看见九界中的一切，也包括你代码里的每一个问题。" —— 海姆达尔
+> *"I can see everything in the Nine Realms — and every problem in your code."* — Heimdall
 
-**海姆达尔是一个 AI 代码审查机器人**：把它接入你的 GitHub 仓库后，它会自动（或按需）审查每个 Pull Request 的 diff，以 GitHub Review 的形式发布专业的中文审查报告——包含变更摘要、严重度分级、行内评论、可执行的 diff 修复建议。
+**Heimdall is an AI code review bot.** Connect it to your GitHub repository and it reviews every Pull Request's diff — automatically or on demand — posting a professional review with change summary, severity grading, inline comments, and executable diff suggestions.
 
-**核心特性：模型自由。** 你**自己配置模型**——支持 Claude / GPT / Gemini / 本地模型（Ollama / vLLM），可通过统一 `AI_API_KEY` + `AI_BASE_URL` 走任意代理网关，代码和审查内容都经你自己的配置。
+**Key: model freedom.** You configure the model — Claude / GPT / Gemini / local models (Ollama, vLLM) — via a unified `AI_API_KEY` + `AI_BASE_URL` or per-provider keys. Your code and reviews never leave your own configuration.
 
-### 🥲 为什么会有海姆达尔？（答：被 Copilot 气出来的）
+> 📖 Chinese version: [README.zh-CN.md](README.zh-CN.md)
 
-> 故事要从那个"说改就改"的订阅说起——某天 Copilot 悄悄把套餐契约改了：模型换了、token 缩水了，你那 10 美元/月的 Code Review 配额，**往往月中就弹窗"配额用尽，请升级"**。月底回头一看，钱是花了不少，Code Review 却一天没用上，全去给财报添砖加瓦了。
+### 🥲 Why does Heimdall exist? (A story of one too many "contract changes")
+
+> Once upon a time, a certain AI assistant decided its subscription was too generous and "rebalanced" the plan — the model got weaker, the tokens got smaller, and that $10/month Code Review quota **ran out around mid-month**, right when you needed it most. By month's end you'd paid plenty, used Code Review almost never, and helped yet another earnings report.
 >
-> 海姆达尔不玩这套：**模型你自己选、成本你自己控、代码不出你内网**。彩虹桥永远为你敞开，且不搞"契约变更不另行通知"。
+> Heimdall plays no such games: **you pick the model, you control the cost, your code stays on your infra.** The Bifrost bridge is always open — no surprise contract changes.
 
-## 特性
+## Features
 
-- **三形态部署**：GitHub Actions（单仓库自用、零服务器）、Cloudflare Workers（无服务器、可作为 GitHub App 分发到任意仓库）、Probot / Docker 自托管（代码不出内网）
-- **按需审查（默认）**：PR 打开不自动审查，在 PR 评论发 `@CoderHeimdall` 才审查（类似 Copilot 按需模式）；配 `auto_review: true` 可恢复自动
-- **可配置模型**：Claude / GPT / Gemini / 本地模型，支持统一 `AI_API_KEY` + `AI_BASE_URL` 代理网关
-- **专业报告**：变更摘要 + 文件变更表格 + 严重度分级（🔴/🟡/🟢）+ 问题汇总 + 折叠块
-- **行内评论 + diff**：每条问题挂在对应代码行，含行动式说明 + 💡 修复建议 + 可套用的 diff 代码块
-- **`.github/heimdall.yml` 配置化**：include/exclude 文件过滤、min_severity 阈值、团队自定义审查指令、白名单、block_on_critical、auto_review
-- **审查质量**：同 commit 去重、`heimdall/critical` 状态阻断合并、敏感字段传导/信任边界等深度检查、JSON 容错解析
-- 跳过草稿 PR 与机器人发起的 PR；核心逻辑带单元测试（node:test）
+- **Three deployment modes**: GitHub Actions (per-repo, zero server) / Cloudflare Workers (serverless, installable as a GitHub App) / Probot self-hosted (code never leaves your intranet)
+- **On-demand review (default)**: PRs are not auto-reviewed on open; comment `@CoderHeimdall` to trigger (Copilot-style). Set `auto_review: true` to enable auto review
+- **Model freedom**: Claude / GPT / Gemini / local models, unified `AI_API_KEY` + `AI_BASE_URL`
+- **Professional report**: change summary + file table + severity (🔴/🟡/🟢) + focus areas + verification steps + issue summary
+- **Inline comments + diff**: each issue pinned to its code line, with actionable title + 💡 fix suggestion + diff + GitHub 1-Click Suggestion
+- **`.github/heimdall.yml` config**: include/exclude filters, `min_severity`, custom instructions, whitelist, `block_on_critical`, `auto_review`
+- **Review language**: `REVIEW_LANGUAGE` = `en` (default) / `zh` / `bilingual`
+- **Quality**: same-commit dedup (triple), `heimdall/critical` status blocks merge, sensitive-field/trust-boundary deep checks, loose JSON parsing
+- Skips draft & bot PRs; unit-tested (node:test)
 
 ---
 
-## 快速开始（2 分钟，单仓库自用）
+## Quick Start (2 minutes, single repo)
 
-**最简单的方式（模式 A：GitHub Actions）**——给任意一个仓库加上 AI reviewer：
+**Simplest (Mode A: GitHub Actions)** — add an AI reviewer to any repo:
 
 ```bash
-# 在「被审查的仓库」执行
+# In the target repo
 mkdir -p .github/workflows scripts
 cp template/heimdall-review.yml .github/workflows/
 cp scripts/heimdall-review.js scripts/
 ```
 
-然后在目标仓库 **Settings → Secrets and variables → Actions** 添加：
+Then in the target repo **Settings → Secrets and variables → Actions** add:
+- `AI_API_KEY` (recommended) or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`
+- Optional Variables: `AI_MODEL`, `AI_BASE_URL`
 
-- `AI_API_KEY`（推荐，走代理网关）或 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY`
-- 可选 Variables：`AI_MODEL`、`AI_BASE_URL`
+Open a PR and comment `@CoderHeimdall` (or `@heimdall`) to see the review. For auto-review, add `.github/heimdall.yml` with `auto_review: true`.
 
-提一个 PR，在 PR 评论发 `@CoderHeimdall`（或 `@heimdall`）即可看到审查报告。想自动审查，在目标仓库放 `.github/heimdall.yml` 并设 `auto_review: true`。
+## Choosing a Mode
 
-## 两种模式怎么选
-
-| | 模式 A：GitHub Actions | 模式 B：Cloudflare Workers |
+| | Mode A: GitHub Actions | Mode B: Cloudflare Workers |
 | --- | --- | --- |
-| 定位 | 单仓库自用、快速接入 | 团队多仓库 / 产品化分发 |
-| 需要注册 GitHub App | 否 | 是 |
-| 需要服务器 | 否 | 否（Cloudflare 边缘） |
-| 安装方式 | 复制 2 个文件到目标仓库 | 安装 GitHub App |
-| 部署成本 | 免费 | 免费额度内（大 diff 建议 Pro） |
+| Purpose | Single repo, quick | Team / productized distribution |
+| GitHub App needed | No | Yes |
+| Server | No | No (Cloudflare edge) |
+| Install | Copy 2 files | Install GitHub App |
+| Cost | Free | Free tier (Pro for large diffs) |
 
-- **只想给自己的仓库加个 AI reviewer** → 模式 A，2 分钟
-- **团队统一使用 / 做成可安装的机器人** → 模式 B
+- **Just want an AI reviewer for your repo** → Mode A, 2 minutes
+- **Team-wide / installable bot** → Mode B
 
 ---
 
-## 模式 A：GitHub Actions
+## Mode A: GitHub Actions
 
-### 1. 复制文件到目标仓库
+### 1. Copy files to the target repo
 
 ```bash
-mkdir -p <目标仓库>/.github/workflows <目标仓库>/scripts
-cp template/heimdall-review.yml <目标仓库>/.github/workflows/
-cp scripts/heimdall-review.js <目标仓库>/scripts/
+mkdir -p <target>/.github/workflows <target>/scripts
+cp template/heimdall-review.yml <target>/.github/workflows/
+cp scripts/heimdall-review.js <target>/scripts/
 ```
 
-### 2. 配置 AI
+### 2. Configure AI
 
-在目标仓库 **Settings → Secrets and variables → Actions**：
+In the target repo **Settings → Secrets and variables → Actions**:
 
-| Secret | 说明 |
+| Secret | Purpose |
 | --- | --- |
-| `AI_API_KEY` | 统一 API Key（走代理网关，推荐）|
-| 或 `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | 各提供方专属 Key |
+| `AI_API_KEY` | Unified key (gateway, recommended) |
+| or `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `GEMINI_API_KEY` | Per-provider keys |
 
-| Variable | 说明 |
+| Variable | Purpose |
 | --- | --- |
-| `AI_MODEL` | 覆盖默认模型（见下方「模型配置」）|
-| `AI_BASE_URL` | 代理网关 / 本地模型地址 |
+| `AI_MODEL` | Override default model |
+| `AI_BASE_URL` | Gateway / local model URL |
 | `AI_PROVIDER` | `anthropic` / `openai` / `gemini` |
 
-### 3. 使用
+### 3. Use
 
-- **按需（默认）**：PR 打开不审查，评论发 `@CoderHeimdall` 触发
-- **自动**：放 `.github/heimdall.yml`，设 `auto_review: true`
+- **On-demand (default)**: comment `@CoderHeimdall` to trigger
+- **Auto**: add `.github/heimdall.yml` with `auto_review: true`
 
 ---
 
-## 模式 B：Cloudflare Workers（完整搭建流程）
+## Mode B: Cloudflare Workers (full setup)
 
-> 这是把海姆达尔做成「可安装的 GitHub App」的完整流程，一次部署，可安装到任意仓库。**建议严格按顺序执行**（很多坑来自顺序错误）。
+> Making Heimdall an **installable GitHub App**. Follow the order — many pitfalls come from wrong ordering.
 
-### 流程总览（5 步）
+### Overview (5 steps)
 
 ```
-① 部署 Worker 到 Cloudflare  →  ② 注册 GitHub App  →  ③ 配置仓库 Secrets
-→  ④ 安装 App + 改 Webhook  →  ⑤ 验证
+① Deploy Worker  →  ② Register GitHub App  →  ③ Configure repo Secrets
+→  ④ Install App + Webhook  →  ⑤ Verify
 ```
 
-### ① 部署 Worker 到 Cloudflare
+### ① Deploy Worker
 
 ```bash
 npm install
-npm run worker:dev          # 本地调试
-npx wrangler login          # 首次需要登录 Cloudflare
-npm run worker:deploy       # 部署，输出 https://heimdall.<你的子域>.workers.dev
+npm run worker:dev          # local debug
+npx wrangler login          # first time
+npm run worker:deploy       # outputs https://heimdall.<your-subdomain>.workers.dev
 ```
 
-部署成功后会得到 **Webhook 地址**（记下来，第②步要用）：
+Save the **Webhook URL**:
 
 ```
-https://heimdall.<你的子域>.workers.dev/api/github/webhooks
+https://heimdall.<your-subdomain>.workers.dev/api/github/webhooks
 ```
 
-### ② 注册 GitHub App
+### ② Register GitHub App
 
-**方式一：Manifest 一键注册（推荐）**
-
-把本仓库推到 GitHub 后，访问：
+**Option 1: Manifest (recommended)**
 
 ```
-https://github.com/settings/apps/new?url=https://raw.githubusercontent.com/<你的用户名>/<仓库名>/main/app.yml
+https://github.com/settings/apps/new?url=https://raw.githubusercontent.com/<you>/<repo>/main/app.yml
 ```
 
-**方式二：手动注册**
+**Option 2: Manual** — GitHub → Settings → Developer settings → GitHub Apps → New GitHub App:
 
-GitHub → Settings → Developer settings → GitHub Apps → **New GitHub App**：
-
-| 项 | 值 |
+| Field | Value |
 | --- | --- |
-| **GitHub App name** | `CoderHeimdall`（全局唯一，重名加后缀）|
-| **Webhook URL** | 第①步的 `https://heimdall.<你的子域>.workers.dev/api/github/webhooks` |
-| **Webhook secret** | 生成随机串并保存（第③步要用）|
-| **Permissions** | `Pull requests` → Read & write；`Contents` → Read-only；`Issues` → Read & write；**`Statuses` → Read & write**（去重标记 + block_on_critical 依赖）；`Metadata` → Read-only |
-| **Subscribe to events** | **勾选 `pull_request`、`issue_comment`**（漏勾则收不到事件！）|
+| **GitHub App name** | `CoderHeimdall` (globally unique) |
+| **Webhook URL** | the ① URL |
+| **Webhook secret** | random string (save for step ③) |
+| **Permissions** | `Pull requests` R/W · `Contents` R · `Issues` R/W · **`Statuses` R/W** (dedup + block_on_critical) · `Metadata` R |
+| **Subscribe to events** | **check `pull_request`, `issue_comment`** (missing = no events!) |
 
-创建后：记录 **App ID**，生成并下载 **Private key（.pem）**。
+Save **App ID**, generate & download **Private key (.pem)**.
 
-### ③ 配置仓库 Secrets
+### ③ Configure repo Secrets
 
-在**本仓库**（部署 heimdall 的仓库）Settings → Secrets and variables → Actions 配置：
+In the heimdall repo **Settings → Secrets and variables → Actions**:
 
-| Secret | 说明 |
+| Secret | Purpose |
 | --- | --- |
-| `CLOUDFLARE_API_TOKEN` | Cloudflare Token（权限 `Workers Scripts: Edit`）|
-| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare 账号 ID |
-| `GH_APP_ID` | GitHub App ID（**不能叫 `GITHUB_APP_ID`**，见坑点）|
-| `GH_APP_PRIVATE_KEY` | App 私钥 **完整 PEM**（含 BEGIN/END 行与换行）|
-| `GH_WEBHOOK_SECRET` | 第②步的 Webhook secret |
-| `AI_API_KEY` / `AI_BASE_URL` | AI 配置（可选，见「模型配置」）|
+| `CLOUDFLARE_API_TOKEN` | Cloudflare token (`Workers Scripts: Edit`) |
+| `CLOUDFLARE_ACCOUNT_ID` | Cloudflare account ID |
+| `GH_APP_ID` | App ID (must NOT start with `GITHUB_`) |
+| `GH_APP_PRIVATE_KEY` | Full PEM (BEGIN/END + newlines) |
+| `GH_WEBHOOK_SECRET` | Webhook secret from ② |
+| `AI_API_KEY` / `AI_BASE_URL` | AI config (optional) |
 
-配好后，推送到 `main` 或手动 Run `Deploy Worker` workflow，即可自动部署 Worker 并写入以上 Secrets。
+Then push to `main` or run the `Deploy Worker` workflow — it auto-deploys and writes these secrets.
 
-### ④ 安装 App + 对接 Webhook
+### ④ Install App + Webhook
 
-1. **Install App**：GitHub App 设置页 → 左侧 **Install App** → 安装到你的账号/仓库（可 All repositories）
-2. **确认 Webhook**：App 设置页 → General → Webhook URL 是第①步地址；Webhook secret 与 `GH_WEBHOOK_SECRET` 一致
-3. 若改名 App 或改动配置，**务必重新确认 Webhook URL 与事件订阅**（改名会重置 webhook！）
+1. **Install App** → install to your account/repos (All repositories ok)
+2. Confirm **Webhook URL** & secret match step ① / `GH_WEBHOOK_SECRET`
+3. If you rename the App or change config, **re-verify Webhook URL & event subscriptions** (renaming resets the webhook!)
 
-### ⑤ 验证
+### ⑤ Verify
 
-在已安装的仓库提一个 PR（或对已有 PR 评论 `@CoderHeimdall`），看 **Files changed** 页是否出现 `CoderHeimdall[bot]` 的审查报告。
+Open a PR in an installed repo (or comment `@CoderHeimdall` on one) and check **Files changed** for the `CoderHeimdall[bot]` review.
 
 ---
 
-## AI 模型配置（核心：自由选择模型）
+## AI Model Configuration (model freedom)
 
-海姆达尔**模型自由**——审查质量取决于你配置的模型。三种方式：
+Three ways:
 
-### 统一配置（推荐，走代理网关）
+### Unified (recommended, via gateway)
 
 ```bash
-AI_API_KEY=<网关 Key>          # 一个 Key 走所有模型
-AI_BASE_URL=https://<网关>/   # 如 https://api.appskit.dev
-AI_MODEL=claude-sonnet-5       # 你的网关支持的模型 ID
+AI_API_KEY=<gateway-key>
+AI_BASE_URL=https://<gateway>/
+AI_MODEL=claude-sonnet-5
 ```
 
-### 各提供方专属
+### Per-provider
 
-| 提供方 | 变量 | 默认模型 |
+| Provider | Variables | Default model |
 | --- | --- | --- |
 | Anthropic | `ANTHROPIC_API_KEY` / `ANTHROPIC_BASE_URL` | claude-sonnet-4-5-20250929 |
 | OpenAI | `OPENAI_API_KEY` / `OPENAI_BASE_URL` | gpt-4o |
 | Gemini | `GEMINI_API_KEY` / `GEMINI_BASE_URL` | gemini-2.0-flash |
-| 本地模型 | `OPENAI_API_KEY` + `OPENAI_BASE_URL=http://localhost:11434/v1` | Ollama / vLLM 等 OpenAI 兼容端点 |
+| Local | `OPENAI_API_KEY` + `OPENAI_BASE_URL=http://localhost:11434/v1` | Ollama / vLLM |
 
-### 配置优先级
+`AI_API_KEY` / `AI_BASE_URL` take priority; fallback to per-provider.
 
-`AI_API_KEY` / `AI_BASE_URL`（统一）优先，未设置则回退到各提供方专属配置。
-
-> **注意**：`AI_MODEL` 必须是你所用网关/提供方**支持的模型 ID**。网关不支持会返回 `model_not_found`，设置 `AI_MODEL` 为网关支持的 ID 即可。
+> `AI_MODEL` must be supported by your gateway/provider, or you get `model_not_found`.
 
 ---
 
-## 配置开关速查
+## Configuration Switches (cheat sheet)
 
-想开某个能力？直接看这张表（「在哪设置」= 环境变量 / GitHub Actions Variable / `.github/heimdall.yml`）：
-
-| 想开启的能力 | 开关 / 参数 | 在哪设置 |
+| Capability | Switch / Param | Where |
 | --- | --- | --- |
-| **PR 打开自动审核**（默认是仅按需）| `auto_review: true` | `.github/heimdall.yml` |
-| 手动触发审查 | PR 评论 `@CoderHeimdall` | 默认，无需配置 |
-| 选择 AI 提供方 | `AI_PROVIDER = anthropic \| openai \| gemini` | 环境变量 / Actions Variable |
-| 选择模型 | `AI_MODEL = <模型 ID>` | 环境变量 / Actions Variable / `wrangler.toml [vars]` |
-| 走代理网关 / 本地模型 | `AI_BASE_URL = https://<网关>` | 环境变量 / Actions Variable |
-| 提供方专属 base_url | `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL` | 环境变量 / Actions Variable |
-| diff 长度上限 | `MAX_DIFF_LENGTH`（默认 40000）| 环境变量 / `wrangler.toml [vars]` |
-| 只审查某些文件 | `include: ["*.ts", ...]` | `.github/heimdall.yml` |
-| 排除某些文件 | `exclude: ["**/generated/**", ...]` | `.github/heimdall.yml` |
-| 只显示 ≥ 某严重度 | `min_severity: important` | `.github/heimdall.yml` |
-| 团队自定义审查指令 | `instructions: \| ...` | `.github/heimdall.yml` |
-| 限制谁能手动触发 | `manual_reviewers: [octocat]` | `.github/heimdall.yml` |
-| **有严重问题就阻止合并** | `block_on_critical: true`（+ 分支保护加 `heimdall/critical` 检查）| `.github/heimdall.yml` + GitHub 分支保护 |
-| **审查报告语言** | `REVIEW_LANGUAGE = en \| zh \| bilingual`（**默认 en**，bilingual 中英并列）| 环境变量 / Actions Variable |
-| 关闭自动、纯按需 | 不配置 `auto_review`（默认即仅按需）| — |
+| **Auto review on PR open** | `auto_review: true` | `.github/heimdall.yml` |
+| Manual trigger | comment `@CoderHeimdall` | default |
+| Provider | `AI_PROVIDER = anthropic \| openai \| gemini` | env / Variable |
+| Model | `AI_MODEL` | env / Variable / `wrangler.toml [vars]` |
+| Gateway / local | `AI_BASE_URL` | env / Variable |
+| Per-provider base | `ANTHROPIC_BASE_URL` / `OPENAI_BASE_URL` / `GEMINI_BASE_URL` | env / Variable |
+| **Report language** | `REVIEW_LANGUAGE = en \| zh \| bilingual` (**default en**) | env / Variable |
+| Diff length cap | `MAX_DIFF_LENGTH` (default 40000) | env / `wrangler.toml [vars]` |
+| Only review some files | `include: ["*.ts", ...]` | `.github/heimdall.yml` |
+| Exclude files | `exclude: [...]` | `.github/heimdall.yml` |
+| Min severity shown | `min_severity: important` | `.github/heimdall.yml` |
+| Team custom instructions | `instructions: \| ...` | `.github/heimdall.yml` |
+| Whitelist who can trigger | `manual_reviewers: [octocat]` | `.github/heimdall.yml` |
+| **Block merge on critical** | `block_on_critical: true` (+ branch protection for `heimdall/critical`) | `.github/heimdall.yml` + GitHub |
+| Off / pure on-demand | leave `auto_review` unset (default) | — |
 
-> 环境变量：自托管 `.env` / Worker 用 `wrangler secret put` 或 `[vars]` / Actions 用 Secrets + Variables。
-
-## 配置文件 `.github/heimdall.yml`（可选）
-
-在被审查仓库放一个 `.github/heimdall.yml` 即可定制审查，配置随仓库版本化：
+## Config File `.github/heimdall.yml`
 
 ```yaml
 version: 1
-
-# 只审查这些文件（glob，支持 * ** ?）；不配置则审查全部
 include: ["*.ts", "*.js", "*.py", "*.go"]
-
-# 排除这些文件（glob，优先级高于 include）
 exclude: ["**/generated/**", "**/*.min.js", "**/package-lock.json"]
-
-# 低于该严重度的 issue 不进报告：critical | important | normal
 min_severity: normal
-
-# 团队自定义审查指令，追加到海姆达尔的系统 prompt
 instructions: |
-  本项目使用 TypeScript，遵循 strict 模式。
-  禁止使用 any。
-
-# 可按需触发 @CoderHeimdall 的账号白名单；不配置表示人人可触发
+  This project uses TypeScript strict mode. No `any`.
 manual_reviewers:
   - octocat
-
-# 存在未解决 critical 问题时，把 heimdall/critical 状态置为 failure
-# （在分支保护里把该检查加入 required status checks 即可真正阻断合并）
 block_on_critical: true
-
-# 设为 true 时开启自动审查；默认不配置 = 仅手动触发（@CoderHeimdall）
-auto_review: true
+auto_review: true   # default is on-demand only
 ```
 
 ---
 
-## 审查报告样式
+## Report Style
 
 ```markdown
-## 海姆达尔 · 代码审查报告
+## 🛡️ Heimdall · Code Review Report
 
-**变更摘要**：本次 PR 共改动 2 个文件，🟢 +214 / 🔴 -58 行。
+**Change Summary**: 2 files, 🟢 +214 / 🔴 -58
 
-| 文件 | 变更 |
-| --- | --- |
-| `src/auth.ts` | 🟢 +120 / 🔴 -30 |
-| `src/api.ts` | 🟢 +94 / 🔴 -28 |
+| File | Change |
+| src/auth.ts | 🟢 +120 / 🔴 -30 |
 
-**变更概述**：重构认证模块，切换为 JWT 校验……
+### 📖 Overview
+...risk analysis + suggested verification...
 
-🔍 **发现 3 个问题**（critical 1 / important 1 / normal 1）
-
-<details><summary>🤖 审查评论</summary>
-
-| 严重度 | 位置 | 问题 |
-| --- | --- | --- |
-| 🔴 | `src/auth.ts:45` | 应改为服务端加载权威数据，当前信任客户端传入字段存在越权风险 |
-| 🟡 | `src/api.ts:88` | 应使用 Promise.all 并行，当前 N+1 查询 |
-| 🟢 | `src/utils.ts:12` | 使用了不可变数据结构，赞 |
-
+<details><summary>🔍 Review Comments & Issues</summary>
+| Severity | Location | Issue |
+| 🔴 | `src/auth.ts:45` | Trust boundary: reload authoritative data server-side |
+| 🟡 | `src/api.ts:88` | Use Promise.all — current N+1 |
 </details>
 
-<details><summary>ℹ️ 审查信息</summary>
-
-- 审查文件：2 个 / 变更规模：🟢 +214 / 🔴 -58 行
-
+<details><summary>ℹ️ Review Info</summary>
+Files reviewed / change size
 </details>
 ```
 
-每条问题的**行内评论**挂在对应代码行，包含：行动式说明 + 影响 + `💡 修复建议` + 可直接套用的 `diff` 代码块。
+Inline comments (pinned to code lines) carry: actionable title + impact + `Fix Suggestion` + executable `diff`.
 
 ---
 
-## 搭建常见坑点（实战踩坑总结）
+## Setup Pitfalls (from real battles)
 
-> 这些坑都是真实部署中踩过的，按此可避免重走弯路。
+### Config
+1. **Repo secrets can't start with `GITHUB_`** — use `GH_` prefix; the workflow maps them to Worker secrets.
+2. **App must subscribe `pull_request` + `issue_comment`** or it never receives events.
+3. **App needs `Statuses` permission** — without it, dedup mark & `block_on_critical` silently fail (403 swallowed).
+4. **Renaming the App resets the webhook** — re-verify URL, secret & events after rename.
+5. **Webhook URL is known only after deploy** — deploy first, then register the App.
+6. **Webhook secret must match both ends** — App settings == `GH_WEBHOOK_SECRET`, else 401.
 
-### 配置类
+### Worker / Cloudflare
+7. **No global `Buffer` in Workers** — `import { Buffer } from "node:buffer"`, or every webhook 500s.
+8. **GitHub API requires `User-Agent`** — else 403 `Request forbidden by administrative rules`.
+9. **Free plan `waitUntil` is 30s** — large-diff reviews can time out. Mitigate: `thinking: { type: "disabled" }` + upgrade to Pro (90s).
+10. **Private key must be full PEM** (BEGIN/END + newlines), or `createPrivateKey` fails.
 
-1. **GitHub repo secret 不能以 `GITHUB_` 开头**（保留给 `GITHUB_TOKEN` 等）。所以用 `GH_APP_ID` / `GH_APP_PRIVATE_KEY` / `GH_WEBHOOK_SECRET` 命名，workflow 再映射为 Worker 侧 secret。
-2. **App 必须勾选 `pull_request` + `issue_comment` 事件**，否则收不到任何事件（Recent Deliveries 里只有 installation/ping）。勾选在 App 设置页 **Subscribe to events**。
-3. **App 需要 `Statuses` 权限**（Read & write）。缺失时去重标记 `heimdall/reviewed` 和 `block_on_critical` 静默失效（403 被吞）。
-4. **改 App 名会重置 Webhook 配置**——改名后必须重新确认 Webhook URL、secret 与事件订阅。
-5. **Webhook URL 部署后才确定**：先部署 Worker（拿到 `https://heimdall.<子域>.workers.dev`），再注册 App 填 URL。
-6. **Webhook secret 两端必须一致**：GitHub App 设置页的 secret 与仓库的 `GH_WEBHOOK_SECRET` 相同，否则 Worker 签名校验失败（401）。
-
-### Worker / Cloudflare 类
-
-7. **Cloudflare Worker 无全局 `Buffer`**——必须显式 `import { Buffer } from "node:buffer"`，否则 webhook 全 500（`Buffer is not defined`）。
-8. **GitHub API 请求必须带 `User-Agent`**，否则返回 403 `Request forbidden by administrative rules`。
-9. **Cloudflare free 计划 `waitUntil` 限 30 秒**：大 diff 的详细审查（多问题 + diff）可能超时被杀。两个缓解：
-   - 请求里 `thinking: { type: "disabled" }` 禁用模型思考过程（大幅加速）
-   - 升级 Cloudflare Pro（`waitUntil` 90s）
-10. **私钥必须完整 PEM**：`GH_APP_PRIVATE_KEY` 要含 `-----BEGIN RSA PRIVATE KEY-----` 到 `-----END RSA PRIVATE KEY-----` 的完整多行内容，否则 `createPrivateKey` 报 `Failed to parse private key`。
-
-### 审查行为类
-
-11. **同一 commit 并发触发会重复审查**（自动 + 手动几乎同时）：已用 `hasExistingReview` + `heimdall/reviewed` 状态 + 模块级缓存三重去重。
-12. **LLM 输出 JSON 里的代码换行可能非法**（diff 字段带真实换行）：已做宽松 JSON 解析容错。
-13. **模型 ID 不匹配网关**会报 `model_not_found`——设 `AI_MODEL` 为网关支持的 ID。
-14. **默认仅按需审查**：未配 `auto_review` 时 PR 不自动审，`@CoderHeimdall` 才审（避免噪音与成本）。
+### Behavior
+11. **Concurrent triggers can double-review** — triple dedup (review query + status mark + module cache).
+12. **LLM JSON with raw newlines in diff** breaks parsing — loose JSON tolerance handles it.
+13. **Model ID mismatch** → `model_not_found`; set `AI_MODEL` to a supported ID.
+14. **Default is on-demand** — PRs aren't auto-reviewed unless `auto_review: true`.
 
 ---
 
-## 架构
+## Architecture
 
-三种形态共享同一套审查内核，抽象为「触发 → 配置 → 数据获取 → 模型调用 → 结果解析 → 回写」管线：
+All three modes share one review core: `trigger → config → fetch diff → LLM → parse → post back`.
 
 ```
-触发（PR 事件 / @CoderHeimdall 评论）
-   │
-   ▼
-读取配置（.github/heimdall.yml）＋ 读取 PR diff（GitHub API，含 include/exclude 过滤）
-   │
-   ▼
-调用 LLM（anthropic / openai / gemini / 本地模型，可自定义 base_url）
-   │
-   ▼
-解析结构化结果（JSON → 严重度 / 文件 / 行号，含宽松容错）
-   │
-   ▼
-以 Review 回写 PR（行内评论 + 整体报告；行号映射失败自动降级）
-   │
-   ▼
-（可选）heimdall/critical 状态检查 → 阻断合并
+trigger (PR event / @CoderHeimdall)
+  → read .github/heimdall.yml + PR diff (include/exclude)
+  → call LLM (anthropic/openai/gemini/local, custom base_url)
+  → parse structured JSON (severity/file/line, loose tolerance)
+  → post Review (inline comments + overall report; fallback on line-mapping failure)
+  → (optional) heimdall/critical status → block merge
 ```
 
-## 目录结构
+## Directory
 
 ```
 heimdall/
-├── app.yml                     # GitHub App Manifest（含 statuses 权限、事件订阅）
-├── .github/
-│   ├── workflows/
-│   │   ├── ci.yml              # 本仓库 CI：构建 + 单元测试
-│   │   └── deploy.yml          # 模式 B：自动发布 Worker 到 Cloudflare
-│   ├── ISSUE_TEMPLATE/         # Issue 模板
-│   └── pull_request_template.md
-├── template/heimdall-review.yml # 模式 A：审查 workflow（复制到目标仓库）
-├── scripts/heimdall-review.js  # 模式 A：审查脚本（复制到目标仓库，零依赖）
-├── worker/                     # 模式 B：Cloudflare Worker
-│   ├── index.ts
-│   └── wrangler.toml
-├── src/                        # 共享审查内核
-│   ├── index.ts                # 自托管入口
-│   ├── app.ts                  # Probot 事件订阅
-│   ├── config.ts               # 环境配置解析（AI 提供方 / base_url / 模型）
+├── app.yml                     # GitHub App manifest (statuses perm, events)
+├── .github/workflows/
+│   ├── ci.yml                  # build + unit tests
+│   └── deploy.yml              # auto-deploy Worker to Cloudflare
+├── template/heimdall-review.yml # Mode A workflow (copy to target repo)
+├── scripts/heimdall-review.js  # Mode A script (zero-dep, copy to target)
+├── worker/                     # Mode B: Cloudflare Worker
+├── src/                        # shared review core
 │   └── review/
-│       ├── index.ts            # 审查主流程
-│       ├── prompt.ts           # 海姆达尔人设 prompt（唯一来源，多次迭代至 85 分+）
-│       ├── providers.ts        # AI 提供方
-│       ├── parse.ts            # 结构化解析 + 报告渲染 + 宽松 JSON 容错
-│       └── repo-config.ts      # heimdall.yml 解析 / 过滤 / 阈值 / 白名单
-├── test/                       # 单元测试（node:test）
-├── .claude/agents/critic.md    # 审查质量批评家 agent（量化评估 ≥85）
-├── AGENTS.md                   # AI Agent 项目指南
-├── Dockerfile                  # 可选：自托管服务
-├── CONTRIBUTING.md             # 贡献指南
-├── PRD.md                      # 产品需求文档
+│       ├── prompt.ts           # Heimdall persona prompt (single source)
+│       ├── parse.ts            # parse/render + loose JSON + labels
+│       ├── providers.ts        # AI providers
+│       └── repo-config.ts      # heimdall.yml parsing
+├── test/                       # node:test
+├── .claude/agents/critic.md    # review-quality critic agent
+├── AGENTS.md                   # AI agent project guide
+├── CONTRIBUTING.md / PRD.md / README.zh-CN.md
 └── README.md
 ```
 
-## 常见问题
+## FAQ
 
-**怎么触发审查？**
+**How do I trigger a review?** Default on-demand: comment `@CoderHeimdall` (or `@heimdall`). Set `auto_review: true` for auto.
 
-默认按需：PR 打开不自动审，在 PR 评论发 `@CoderHeimdall`（或 `@heimdall`）即审查。配 `auto_review: true` 后 PR 打开自动审。
+**Does a commit get reviewed twice?** No — triple dedup ensures one review per commit; new commits re-review.
 
-**审查会受上下文长度限制吗？**
+**Context limit?** `MAX_DIFF_LENGTH` (default 40000) truncates; split large PRs or raise it.
 
-会。`MAX_DIFF_LENGTH` 默认 40000 字符，超出截断；超大 PR 建议拆小或提高该值。
+**Report language?** `REVIEW_LANGUAGE` = `en` (default) / `zh` / `bilingual`.
 
-**行内评论的行号不准怎么办？**
+## Roadmap
 
-能定位到 diff 新增行的以行内评论发布，无法定位或映射失败（422）自动降级进整体报告，不丢失内容。
+Delivered (M1–M4):
+- [x] Auto + on-demand review, persona prompt
+- [x] Change summary, severity, inline comments + diff suggestions
+- [x] `.github/heimdall.yml` config (filters / min_severity / instructions / whitelist / block / auto)
+- [x] On-demand `@CoderHeimdall` (default)
+- [x] Multiple providers + unified `AI_API_KEY`/`AI_BASE_URL`
+- [x] Same-commit dedup (triple)
+- [x] Quality iterations (prompt v1→v8, critic-scored ≥85)
+- [x] Unit tests + CI + auto-deploy
 
-**同一 commit 会重复审查吗？**
-
-不会。自动 + 手动触发都有去重（review 查询 + 状态标记 + 模块缓存），同一 commit 只审一次；新 commit 才重新审。
-
-## 路线图
-
-已交付（M1–M4）：
-
-- [x] 自动整体审查 + 海姆达尔人设
-- [x] 变更摘要 + 严重度分级 + 行内评论 + diff 修复建议
-- [x] `.github/heimdall.yml` 配置化（include/exclude / min_severity / instructions / 白名单 / block_on_critical / auto_review）
-- [x] 按需审查 `@CoderHeimdall`（默认）
-- [x] 更多 AI 提供方 + 统一 `AI_API_KEY` / `AI_BASE_URL` + 模型可配置
-- [x] 同 commit 去重（三重机制）
-- [x] 审查质量迭代（prompt v1→v7，批评家量化评估达 85+）
-- [x] 单元测试 + CI + Worker 自动发布
-
-规划中：
-
-- [ ] 增量审查（只审查新增 / 变更部分）
-- [ ] 基于文件变更规模的审查分级
+Planned:
+- [ ] Incremental review (only changed parts)
+- [ ] Review tiering by change size
 
 ## License
 
